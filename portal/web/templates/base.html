@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ APP_NAME }}{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/app.css">
+<!-- htmx с CDN. Для закрытого контура застройщика положить файл рядом,
+     в /static/htmx.min.js, и заменить ссылку — сборки всё равно нет. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <b>{{ APP_NAME }}</b>
+      <div class="upper">приёмка документации</div>
+    </div>
+    <nav class="nav">
+      <a href="/" class="{{ 'active' if active_nav == 'projects' else '' }}">Объекты</a>
+      <div class="later">
+        <div class="upper" style="padding:0 9px 6px">Следующие итерации</div>
+        <span>Сверка с чертежами</span>
+        <span>Замечания</span>
+        <span>Выгрузки</span>
+      </div>
+    </nav>
+    <div class="side-foot">
+      <div>{{ ORG_NAME }}</div>
+      <div class="sub">пилот</div>
+    </div>
+  </aside>
+  <main class="main">{% block main %}{% endblock %}</main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

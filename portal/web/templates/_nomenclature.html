@@ -1,0 +1,30 @@
+<form class="filters" hx-get="/projects/{{ project.id }}/nomenclature"
+      hx-trigger="input from:input[name=q] changed delay:300ms"
+      hx-target="#nomrows" hx-swap="innerHTML">
+  <div class="row-between">
+    <div class="sub">
+      <span class="num" style="color:var(--fg)">{{ nom.totals.total|num }}</span> позиций, из них
+      <span class="num" style="color:var(--fg)">{{ nom.totals.no_mark|num }}</span> без марки,
+      <span class="num" style="color:var(--fg)">{{ nom.totals.duplicates|num }}</span> {{ nom.totals.duplicates|plural('дубль','дубля','дублей') }} между разделами,
+      <span class="num" style="color:var(--fg)">{{ nom.totals.excluded|num }}</span> исключено изменениями
+    </div>
+    <a class="btn" href="/projects/{{ project.id }}/nomenclature.xlsx">Выгрузить в Excel</a>
+  </div>
+  <div class="line">
+    <input class="search" name="q" value="{{ nom.q }}" placeholder="Поиск по марке или наименованию" autocomplete="off">
+    <input type="hidden" name="section" value="{{ nom.section }}">
+    <input type="hidden" name="flagged" value="{{ 1 if nom.flagged else 0 }}">
+    <div class="seg">
+      <a href="?tab=nomenclature&q={{ nom.q }}&flagged={{ 1 if nom.flagged else 0 }}" class="{{ 'active' if not nom.section }}">все</a>
+      {% for s in nom.sections %}
+        <a href="?tab=nomenclature&q={{ nom.q }}&flagged={{ 1 if nom.flagged else 0 }}&section={{ s }}"
+           class="{{ 'active' if nom.section == s }}">{{ s }}</a>
+      {% endfor %}
+    </div>
+    <a class="toggle {{ 'on' if nom.flagged }}"
+       href="?tab=nomenclature&q={{ nom.q }}&section={{ nom.section }}&flagged={{ 0 if nom.flagged else 1 }}"><i></i>Только с отметками</a>
+  </div>
+</form>
+<div id="nomrows">
+  {% include '_nomenclature_rows.html' %}
+</div>

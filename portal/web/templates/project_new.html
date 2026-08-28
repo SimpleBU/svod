@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% set active_nav = 'projects' %}
+{% block title %}Новый объект · {{ APP_NAME }}{% endblock %}
+{% block main %}
+<div class="head">
+  <div>
+    <div class="crumbs"><a href="/">Объекты</a><span>/</span><span>новый</span></div>
+    <h1 style="margin-top:6px">Новый объект</h1>
+  </div>
+</div>
+<div class="scroll pad">
+  <form class="form" method="post" action="/projects">
+    <label>Название объекта
+      <input name="name" required autofocus placeholder="Жилой комплекс «Северный», корпус 3">
+    </label>
+    <label>Шифр
+      <input name="code" placeholder="ПР-01.24">
+    </label>
+    <label>Проектное бюро
+      <input name="bureau" placeholder="ООО «Проектбюро-Инжиниринг»">
+    </label>
+    <label>Подача
+      <input name="label" value="Первая подача" placeholder="Изм. 1">
+    </label>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" type="submit">Создать</button>
+      <a class="btn" href="/">Отмена</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

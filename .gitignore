@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+var/
+reports/
+Example/
+*.xlsx
+.DS_Store
+.idea/
+.vscode/

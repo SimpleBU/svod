@@ -1,0 +1,70 @@
+<div id="composition"
+     {% if composition.busy %}hx-get="/projects/{{ project.id }}/composition"
+     hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+{% if composition.volumes %}
+  <div class="pad" style="padding-bottom:0">
+    <div class="row-between">
+      <div class="sub">
+        {{ composition.volumes|length }} {{ composition.volumes|length|plural('том','тома','томов') }} ·
+        {{ composition.parsed|num }} {{ composition.parsed|plural('лист','листа','листов') }} разобрано ·
+        <span style="color:var(--fg-2)">{{ composition.ready }} {{ composition.ready|plural('том готов','тома готовы','томов готовы') }} к проверке</span>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--g)"></i>готов</span>
+        <span><i class="dot" style="background:var(--y)"></i>с оговоркой</span>
+        <span><i class="dot" style="background:var(--r)"></i>требует глаз</span>
+      </div>
+    </div>
+  </div>
+  <div class="vols">
+  {% for it in composition.volumes %}
+    {% set d = it.d %}
+    <div class="vol lvl-{{ it.level if d.status == 'done' else ('r' if d.status == 'error' else 'x') }}">
+      <div class="vol-id">
+        <div class="vol-code">{{ d.cipher or d.filename }}</div>
+        <div class="vol-meta">{{ d.section_label or d.section or 'раздел не распознан' }}{% if d.revision %} · {{ d.revision }}{% endif %}</div>
+      </div>
+      <div class="vol-body">
+        {% if d.status == 'error' %}
+          <div style="display:flex;align-items:center;gap:16px">
+            <div>
+              <div class="err-title">Не удалось разобрать файл</div>
+              <div class="err-text">{{ d.error }}</div>
+            </div>
+            <button class="btn btn-danger" style="margin-left:auto"
+                    hx-post="/api/documents/{{ d.id }}/retry"
+                    hx-target="#composition" hx-swap="outerHTML">Повторить разбор</button>
+          </div>
+        {% elif d.status in ('new', 'queued', 'running') %}
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div class="row-between" style="font-size:12px">
+              <span class="muted">{% if it.run and it.run.stage %}Обработка: {{ it.run.stage }}{% elif d.status == 'new' %}Ожидает загрузки файла{% else %}В очереди на разбор{% endif %}</span>
+              <span class="num muted">{{ (it.run.percent if it.run else 0) }} %</span>
+            </div>
+            <div class="progress"><div style="width:{{ (it.run.percent if it.run else 0) }}%"></div></div>
+            <div style="font-size:11px;color:var(--fg-6)">Флаги готовности появятся после разбора</div>
+          </div>
+        {% else %}
+          <div class="sheets-line">
+            <b>{{ d.pages_total }}</b><span class="upper">листов</span>
+            <span class="kinds">
+              {% for b in it.breakdown %}<span>{{ b.label }} <i>{{ b.count }}</i></span>{% endfor %}
+            </span>
+          </div>
+          <div class="bar">
+            {% for b in it.breakdown %}<div style="width:{{ b.pct }}%;background:{{ b.color }}"></div>{% endfor %}
+          </div>
+        {% endif %}
+      </div>
+      <div class="vol-flags">
+        {% for f in it.flags %}<div class="flag {{ f.level }}"><i></i>{{ f.label }}</div>{% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+  <div class="disclaimer">Портал показывает состав комплекта и номенклатуру по данным
+    спецификаций. Сверка с чертежами не выполнялась; документ не является заключением экспертизы.</div>
+{% else %}
+  <div class="empty">В подаче «{{ composition.submission.label }}» ещё нет томов — загрузите PDF выше.</div>
+{% endif %}
+</div>

@@ -1,0 +1,34 @@
+<table class="grid">
+  <thead><tr>
+    <th style="width:19%">Марка</th>
+    <th style="width:31%">Наименование</th>
+    <th style="width:6%">Ед.</th>
+    <th class="r" style="width:9%">Кол-во</th>
+    <th style="width:12%">Разделы</th>
+    <th style="width:23%">Отметки</th>
+  </tr></thead>
+  <tbody>
+  {% for r in nom.rows %}
+    <tr class="{{ 'dim' if 'исключено изменением' in r.flags }}">
+      <td class="mono ell" title="{{ r.mark }}">{{ r.mark or '—' }}</td>
+      <td class="ell" title="{{ r.name }}">{{ r.name }}</td>
+      <td class="muted">{{ r.unit }}</td>
+      <td class="r num">{{ r.qty_display }}</td>
+      <td class="mono" style="font-size:11px;color:var(--fg-4)">{{ r.sections|join(', ') }}</td>
+      <td>
+        {% for f in r.flags %}
+          <div class="state s-{{ 'warn' if f in ('без марки', 'дубль между разделами') else 'idle' }}" style="font-size:11px">
+            <span class="dot"></span>{{ f }}</div>
+        {% endfor %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="empty">Ничего не найдено{% if nom.totals.total == 0 %}: спецификации ещё не разобраны{% endif %}.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if nom.truncated %}
+  <div class="disclaimer">Показаны первые 2000 строк из {{ nom.shown|num }} — уточните фильтр или выгрузите в Excel.</div>
+{% else %}
+  <div class="disclaimer">Показано {{ nom.shown|num }} {{ nom.shown|plural('позиция','позиции','позиций') }}.</div>
+{% endif %}

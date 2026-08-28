@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% set active_nav = 'projects' %}
+{% block title %}Объекты · {{ APP_NAME }}{% endblock %}
+{% block main %}
+<div class="head">
+  <div>
+    <h1>Объекты строительства</h1>
+    <div class="sub">{{ rows|length }} {{ rows|length|plural('объект','объекта','объектов') }}{% if processing %} · {{ processing }} {{ processing|plural('комплект','комплекта','комплектов') }} в обработке{% endif %}</div>
+  </div>
+  <a class="btn btn-primary" href="/projects/new">Новый объект</a>
+</div>
+<div class="scroll">
+{% if rows %}
+  <table class="grid">
+    <thead><tr>
+      <th style="width:30%">Объект</th>
+      <th style="width:22%">Проектное бюро</th>
+      <th style="width:16%">Последняя подача</th>
+      <th class="r" style="width:9%">Томов</th>
+      <th style="width:23%">Состояние</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr onclick="location.href='/projects/{{ r.p.id }}'" style="cursor:pointer">
+        <td><div>{{ r.p.name }}</div>{% if r.p.code %}<div class="mono" style="font-size:11px;color:var(--fg-5)">{{ r.p.code }}</div>{% endif %}</td>
+        <td class="muted">{{ r.p.bureau or '—' }}</td>
+        <td class="muted num">{{ r.submission.label if r.submission else '—' }}</td>
+        <td class="r mono">{{ r.volumes }}</td>
+        <td><span class="state s-{{ r.state[1] }}"><span class="dot"></span>{{ r.state[0] }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="empty">Объектов пока нет. Создайте первый и загрузите в него комплект от бюро.</div>
+{% endif %}
+</div>
+{% endblock %}
