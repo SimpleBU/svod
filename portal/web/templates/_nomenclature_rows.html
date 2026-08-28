@@ -11,7 +11,7 @@
   {% for r in nom.rows %}
     <tr class="{{ 'dim' if 'исключено изменением' in r.flags }}">
       <td class="mono ell" title="{{ r.mark }}">{{ r.mark or '—' }}</td>
-      <td class="ell" title="{{ r.name }}">{{ r.name }}</td>
+      <td class="wrap2" title="{{ r.name }}">{{ r.name }}</td>
       <td class="muted">{{ r.unit }}</td>
       <td class="r num">{{ r.qty_display }}</td>
       <td class="mono" style="font-size:11px;color:var(--fg-4)">{{ r.sections|join(', ') }}</td>

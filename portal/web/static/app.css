@@ -78,6 +78,10 @@ table.grid th:last-child, table.grid td:last-child { padding-right: 28px; }
 table.grid tbody tr:hover { background: var(--hover); }
 td.r, th.r { text-align: right; }
 .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* наименование различает строки с одинаковой маркой («... DN 32» / «... DN 40»),
+   поэтому его хвост прятать нельзя — переносим на вторую строку */
+.wrap2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+         overflow: hidden; white-space: normal; }
 .empty { padding: 60px 28px; color: var(--fg-4); text-align: center; }
 
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
