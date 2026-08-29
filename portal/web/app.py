@@ -351,7 +351,7 @@ def _remarks_ctx(s, doc, sub, scope='doc'):
 def project_page(request: Request, project_id: int, tab: str = 'composition',
                  q: str = '', section: str = '', flagged: int = 0,
                  doc: int = 0, flt: str = '', scope: str = '',
-                 page: int = 0, item: int = 0):
+                 page: int = 0, item: int = 0, only: int = 0, rem: int = 0):
     with db() as s:
         p, sub = _load(s, project_id)
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
@@ -369,8 +369,9 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
                 ctx['match'] = match_service.context(s, picked, q,
                                                      flt if flt else None)
             elif picked is not None and tab == 'sheet':
-                ctx['sheet'] = sheet_service.context(s, picked, page,
-                                                     item or None)
+                ctx['sheet'] = sheet_service.context(
+                    s, picked, page, item or None, only_marked=bool(only),
+                    focus=rem or None)
             elif picked is not None and tab == 'remarks':
                 ctx['remarks'] = _remarks_ctx(s, picked, sub, scope or 'doc')
             elif picked is not None:
@@ -462,8 +463,11 @@ def passport_remark(request: Request, document_id: int, index: int = Form(...),
         remark = remark_service.from_passport(s, doc, f, status, _uid(request))
         ctx = dict(f, index=index, remark=remark,
                    level_class=passport_service.LEVELS.get(f.get('level'), ''))
-        return templates.TemplateResponse(request, '_finding.html',
-                                          {'request': request, 'f': ctx, 'doc': doc})
+        project_id, _ = plan_service.project_of(s, doc)
+        return templates.TemplateResponse(
+            request, '_finding.html',
+            {'request': request, 'f': ctx, 'doc': doc,
+             'project': s.get(Project, project_id)})
 
 
 @app.get('/projects/{project_id}/letter.docx')
@@ -508,6 +512,22 @@ def remarks_mark_sent(request: Request, project_id: int, doc: int = Form(0),
         status_code=303)
 
 
+@app.post('/api/remarks/{remark_id}/anchor', response_class=HTMLResponse)
+def remark_anchor(request: Request, remark_id: int, page: int = Form(...),
+                  x: float = Form(...), y: float = Form(...)):
+    """Поставить метку замечанию, которое машина нашла без координат."""
+    with db() as s:
+        remark = s.get(Remark, remark_id)
+        if remark is None:
+            raise HTTPException(404, 'замечание не найдено')
+        doc = s.get(Document, remark.document_id)
+        remark_service.place(s, remark, page, x, y, _uid(request))
+        p = s.get(Project, s.get(Submission, doc.submission_id).project_id)
+        return templates.TemplateResponse(request, '_sheet_panel.html', {
+            'request': request, 'project': p, 'doc': doc,
+            'sheet': sheet_service.context(s, doc, page, focus=remark.id)})
+
+
 @app.post('/api/remarks/{remark_id}', response_class=HTMLResponse)
 def remark_edit(request: Request, remark_id: int, text: str = Form(None),
                 status: str = Form(None)):
@@ -521,8 +541,11 @@ def remark_edit(request: Request, remark_id: int, text: str = Form(None),
             raise HTTPException(404, 'замечание не найдено')
         remark_service.edit(s, remark, text, status, _uid(request))
         users = {u.id: (u.name or u.email) for u in s.scalars(select(User)).all()}
+        doc = s.get(Document, remark.document_id)
+        project_id, _ = plan_service.project_of(s, doc)
         return templates.TemplateResponse(request, '_remark.html', {
-            'request': request, 'r': remark, 'users': users})
+            'request': request, 'r': remark, 'users': users,
+            'project': s.get(Project, project_id)})
 
 
 def _row_response(request, s, project, item):
@@ -670,7 +693,7 @@ def page_crop_png(document_id: int, page: int, box: str = '0,0,1,1',
 
 @app.get('/projects/{project_id}/sheet', response_class=HTMLResponse)
 def sheet_panel(request: Request, project_id: int, doc: int = 0, page: int = 0,
-                item: int = 0):
+                item: int = 0, only: int = 0, rem: int = 0):
     with db() as s:
         p, sub = _load(s, project_id)
         picked, _ = _pick_doc(sub, doc)
@@ -678,7 +701,9 @@ def sheet_panel(request: Request, project_id: int, doc: int = 0, page: int = 0,
             raise HTTPException(404, 'том не разобран')
         return templates.TemplateResponse(request, '_sheet_panel.html', {
             'request': request, 'project': p, 'doc': picked,
-            'sheet': sheet_service.context(s, picked, page, item or None)})
+            'sheet': sheet_service.context(s, picked, page, item or None,
+                                           only_marked=bool(only),
+                                           focus=rem or None)})
 
 
 @app.post('/api/documents/{document_id}/sheet-remark', response_class=HTMLResponse)

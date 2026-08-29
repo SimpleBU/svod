@@ -145,8 +145,22 @@ def stats(rows):
             'dismissed': sum(1 for r in rows if r.status == models.DISMISSED)}
 
 
+def first_page(sheets):
+    """Лист, с которого эксперт начнёт смотреть замечание.
+
+    У замечания их обычно несколько, но открывать надо какой-то один;
+    остальные остаются в `sheets` и подсвечиваются в полосе листов.
+    """
+    for s in sheets or ():
+        try:
+            return int(s)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def decide(session, doc, key, status, source='match', subject='', text='',
-           evidence='', sheets=(), level='red', user_id=None):
+           evidence='', sheets=(), level='red', user_id=None, page=None):
     """Создать или изменить решение по расхождению.
 
     Формулировку, once правленную экспертом, повторное нажатие не затирает:
@@ -157,8 +171,11 @@ def decide(session, doc, key, status, source='match', subject='', text='',
     if remark is None:
         remark = Remark(org_id=doc.org_id, document_id=doc.id, source=source,
                         key=key, subject=subject[:300], text=text,
-                        evidence=evidence, sheets=list(sheets), level=level)
+                        evidence=evidence, sheets=list(sheets), level=level,
+                        page=page if page is not None else first_page(sheets))
         session.add(remark)
+    elif remark.page is None:
+        remark.page = page if page is not None else first_page(sheets)
     remark.status = status
     remark.author_id = user_id
     remark.decided_at = _now()
@@ -192,10 +209,18 @@ def edit(session, remark, text=None, status=None, user_id=None):
 
 
 def from_match(session, doc, item, status, user_id=None):
+    """Замечание из строки сверки.
+
+    Листы берутся те, на которых сверка встретила марку, — по ним эксперт
+    и попадёт на чертёж. Координаты не ставятся: их подберёт просмотрщик
+    при первом открытии листа, когда файл уже будет под рукой.
+    """
+    sheets = (list(item.plan_pages or []) + list(item.schema_pages or [])
+              or list(item.spec_pages or []))
     return decide(session, doc, match_key(item), status, source='match',
                   subject=(' · '.join(item.marks or []) or item.mark),
                   text=match_text(item), evidence=match_evidence(item),
-                  sheets=item.plan_pages or item.schema_pages or item.spec_pages,
+                  sheets=list(dict.fromkeys(sheets)),
                   level=item.level, user_id=user_id)
 
 
@@ -271,6 +296,33 @@ def mark_sent(session, documents, user_id=None):
                 n += 1
     session.commit()
     return n
+
+
+def place(session, remark, page, x, y, user_id=None):
+    """Поставить метку существующему замечанию — руками, с листа."""
+    remark.page = int(page)
+    remark.anchor = {'kind': 'point', 'x': round(float(x), 5),
+                     'y': round(float(y), 5), 'w': 0.0, 'h': 0.0}
+    remark.anchor_document_id = remark.document_id
+    remark.anchor_label = f'л. {int(page)}, точка {round(x * 100)}×{round(y * 100)}'
+    if int(page) not in (remark.sheets or []):
+        remark.sheets = list(remark.sheets or []) + [int(page)]
+    remark.author_id = user_id or remark.author_id
+    session.commit()
+    return remark
+
+
+def pages_of(remark):
+    """Все листы, к которым относится замечание: и якорь, и упомянутые."""
+    pages = set()
+    if remark.page:
+        pages.add(int(remark.page))
+    for s in remark.sheets or ():
+        try:
+            pages.add(int(s))
+        except (TypeError, ValueError):
+            continue
+    return pages
 
 
 def orphaned(session, document_id):

@@ -106,31 +106,87 @@ def match_anchors(session, item: MatchItem):
     return found
 
 
-def pages(session, doc):
-    """Листы тома для полосы: номер, тип, заголовок, есть ли замечания."""
+def remark_pages(session, doc):
+    """Сколько замечаний относится к каждому листу тома.
+
+    Замечание из сверки знает листы, на которых машина встретила марку,
+    даже если метку на чертеже никто не ставил, — иначе найти лист,
+    к которому относится найденное машиной, было бы нечем.
+    """
+    counts = {}
+    for r in remark_service.items(session, doc.id):
+        if r.status == models.DISMISSED:
+            continue
+        for page in remark_service.pages_of(r):
+            counts[page] = counts.get(page, 0) + 1
+    return counts
+
+
+def pages(session, doc, only_marked=False):
+    """Листы тома для полосы: номер, тип, заголовок, число замечаний."""
     rows = session.scalars(
         select(Sheet).where(Sheet.document_id == doc.id)
         .order_by(Sheet.page)).all()
-    marked = {r.page for r in session.scalars(
-        select(Remark).where(Remark.document_id == doc.id,
-                             Remark.page.isnot(None))).all()}
-    return [{'page': s.page, 'kind': s.kind,
-             'label': KIND_LABELS.get(s.kind, s.kind),
-             'title': s.title or '', 'marked': s.page in marked}
-            for s in rows]
+    counts = remark_pages(session, doc)
+    out = [{'page': s.page, 'kind': s.kind,
+            'label': KIND_LABELS.get(s.kind, s.kind),
+            'title': s.title or '', 'remarks': counts.get(s.page, 0)}
+           for s in rows]
+    if only_marked:
+        out = [s for s in out if s['remarks']] or out
+    return out
 
 
 def page_remarks(session, doc, page):
-    return [r for r in remark_service.items(session, doc.id) if r.page == page]
+    """Замечания листа: и поставленные меткой, и просто относящиеся к нему."""
+    return [r for r in remark_service.items(session, doc.id)
+            if page in remark_service.pages_of(r)]
 
 
-def context(session, doc, page=0, mark_item=None):
+def _place_found(session, doc, remarks, page):
+    """Подобрать координаты замечаниям сверки, у которых метки ещё нет.
+
+    Замечание завели из таблицы — координат там взяться неоткуда. Зато
+    здесь, на открытом листе, известно, где марка подписана: ставим метку
+    один раз и дальше ведём себя как с обычной.
+    """
+    pending = [r for r in remarks
+               if r.source == 'match' and not r.anchor and r.page == page]
+    if not pending:
+        return
+    for r in pending:
+        kind, _, mark = (r.key or '').partition(':')[2].partition(':')
+        item = session.scalar(select(MatchItem).where(
+            MatchItem.document_id == doc.id, MatchItem.kind == kind,
+            MatchItem.mark == mark))
+        if item is None:
+            continue
+        try:
+            found = match_anchors(session, item)
+        except Exception:
+            # подбор координат — удобство, а не обязанность: если файл не
+            # достался, лист всё равно должен открыться
+            log.exception('не удалось подобрать метку для замечания %s', r.id)
+            return
+        anchor = next((a for a in found if a.get('page') == page), None)
+        if anchor is None:
+            continue
+        r.anchor = {'kind': 'mark', 'x': anchor['x'], 'y': anchor['y'],
+                    'w': anchor['w'], 'h': anchor['h']}
+        r.anchor_document_id = doc.id
+        r.anchor_label = f'л. {page}, {anchor.get("mark", "") or r.subject}'[:120]
+    session.commit()
+
+
+def context(session, doc, page=0, mark_item=None, only_marked=False, focus=None):
     """Всё, что показывает вкладка «Лист»."""
-    sheets = pages(session, doc)
+    sheets = pages(session, doc, only_marked)
     numbers = [s['page'] for s in sheets]
     if page not in numbers:
-        page = next((s['page'] for s in sheets if s['kind'] == 'plan'),
-                    numbers[0] if numbers else 1)
+        with_remarks = next((s['page'] for s in sheets if s['remarks']), None)
+        page = (with_remarks
+                or next((s['page'] for s in sheets if s['kind'] == 'plan'),
+                        numbers[0] if numbers else 1))
     item = session.get(MatchItem, mark_item) if mark_item else None
     highlights = []
     if item is not None:
@@ -141,11 +197,16 @@ def context(session, doc, page=0, mark_item=None):
             if first and first['page'] in numbers:
                 page = first['page']
                 highlights = [a for a in item.anchors if a.get('page') == page]
+    remarks = page_remarks(session, doc, page)
+    _place_found(session, doc, remarks, page)
     return {
         'doc': doc, 'page': page, 'sheets': sheets,
         'sheet': next((s for s in sheets if s['page'] == page), None),
-        'remarks': page_remarks(session, doc, page),
+        'remarks': remarks, 'focus': focus,
+        'unplaced': [r for r in remarks if not r.anchor],
         'item': item, 'highlights': highlights,
+        'only_marked': only_marked,
+        'marked_pages': sum(1 for s in sheets if s['remarks']),
         'ready': doc.pages_rendered or 0,
         'total': doc.pages_total or len(sheets),
     }

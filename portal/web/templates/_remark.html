@@ -18,6 +18,10 @@
   </form>
   <div class="rem-foot">
     <div class="sub mono">{{ r.evidence }}</div>
+    {% if r.page %}
+      <a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ r.document_id }}&page={{ r.page }}&rem={{ r.id }}"
+         title="{% if r.anchor %}метка стоит на листе{% else %}лист, к которому относится замечание{% endif %}">на листе {{ r.page }}{% if not r.anchor %} · без метки{% endif %}</a>
+    {% endif %}
     <div class="rem-act">
       {% if r.status != 'sent' %}
         <button class="link" hx-post="/api/remarks/{{ r.id }}"

@@ -1,17 +1,28 @@
 {# просмотрщик листа: полоса листов, сам лист с метками, замечания листа #}
 <div id="sheetpanel" class="sheetwrap"
      data-doc="{{ doc.id }}" data-page="{{ sheet.page }}"
-     data-project="{{ project.id }}">
+     data-project="{{ project.id }}" data-focus="{{ sheet.focus or '' }}">
 
   <div class="sheetnav">
+    <div class="navhead">
+      <a class="seg-mini {{ 'on' if not sheet.only_marked }}"
+         hx-get="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ sheet.page }}"
+         hx-target="#sheetpanel" hx-swap="outerHTML" href="#">все</a>
+      <a class="seg-mini {{ 'on' if sheet.only_marked }}"
+         hx-get="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ sheet.page }}&only=1"
+         hx-target="#sheetpanel" hx-swap="outerHTML" href="#"
+         title="Листы, к которым относится хотя бы одно замечание">
+        с замечаниями{% if sheet.marked_pages %} · {{ sheet.marked_pages }}{% endif %}</a>
+    </div>
     {% for s in sheet.sheets %}
       <a class="thumb {{ 'on' if s.page == sheet.page }}"
-         href="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}"
-         hx-get="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}"
+         href="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}{{ '&only=1' if sheet.only_marked }}"
+         hx-get="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}{{ '&only=1' if sheet.only_marked }}"
          hx-target="#sheetpanel" hx-swap="outerHTML" title="{{ s.title }}">
         <img loading="lazy" src="/api/pages/{{ doc.id }}/{{ s.page }}.png?kind=thumb" alt="">
         <span class="thumb-no mono">{{ s.page }}</span>
-        <span class="thumb-kind">{{ s.label }}{% if s.marked %} <i class="dot"></i>{% endif %}</span>
+        {% if s.remarks %}<span class="thumb-count">{{ s.remarks }}</span>{% endif %}
+        <span class="thumb-kind">{{ s.label }}</span>
       </a>
     {% endfor %}
   </div>
@@ -77,12 +88,30 @@
       </div>
     </form>
 
+    {# форма привязки: метка ставится существующему замечанию, найденному машиной #}
+    <form id="placerem" class="newrem" hidden hx-post="" hx-target="#sheetpanel"
+          hx-swap="outerHTML">
+      <input type="hidden" name="page" value="{{ sheet.page }}">
+      <input type="hidden" name="x" id="px" value="">
+      <input type="hidden" name="y" id="py" value="">
+      <div class="row-between">
+        <b>Куда поставить метку</b>
+        <span class="sub mono" id="plabel"></span>
+      </div>
+      <div class="sub" id="psubject"></div>
+      <div class="row-between">
+        <button class="link" type="button" id="cancelplace">отмена</button>
+        <button class="btn btn-primary" type="submit">Поставить</button>
+      </div>
+    </form>
+
     <div class="sub sheetside-head">
       {% if sheet.remarks %}Замечания на листе {{ sheet.page }}: {{ sheet.remarks|length }}
+        {% if sheet.unplaced %} · без метки {{ sheet.unplaced|length }}{% endif %}
       {% else %}На этом листе замечаний нет{% endif %}
     </div>
     {% for r in sheet.remarks %}
-      <div class="remcard lvl-{{ 'r' if r.level == 'red' else 'y' }}{{ ' rem-off' if r.status == 'dismissed' }}"
+      <div class="remcard lvl-{{ 'r' if r.level == 'red' else 'y' }}{{ ' rem-off' if r.status == 'dismissed' }}{{ ' hot' if sheet.focus == r.id }}"
            data-rem="{{ r.id }}" id="remcard-{{ r.id }}">
         <div class="row-between">
           <span class="mono sub">{{ r.anchor_label or r.subject }}</span>
@@ -91,8 +120,15 @@
              'fixed':'исправлено','resolved':'закрыто'}.get(r.status, r.status) }}</span>
         </div>
         <div>{{ r.text }}</div>
+        <div class="row-between">
+          <span class="sub">{{ 'сверка' if r.source == 'match' else ('паспорт' if r.source == 'passport' else 'с листа') }}
+            {%- if r.sheets and r.sheets|length > 1 %} · листы {{ r.sheets|join(', ') }}{% endif %}</span>
+          {% if not r.anchor %}
+            <button class="link" data-place="{{ r.id }}"
+                    data-subject="{{ r.subject }}">поставить метку</button>
+          {% endif %}
+        </div>
       </div>
     {% endfor %}
   </aside>
 </div>
-

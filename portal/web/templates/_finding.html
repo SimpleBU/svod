@@ -2,7 +2,8 @@
 <div class="find lvl-{{ f.level_class }}{{ ' decided' if f.remark }}" id="find-{{ f.index }}">
   <i class="dot"></i>
   <div class="find-text">{{ f.text }}</div>
-  {% if f.sheets %}<div class="find-sheet mono">{{ 'лист' if f.sheets|length == 1 else 'листы' }} {{ f.sheets|join(', ') }}</div>{% endif %}
+  {% if f.sheets %}<div class="find-sheet mono">{{ 'лист' if f.sheets|length == 1 else 'листы' }}
+    {% for n in f.sheets %}<a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ doc.id }}&page={{ n }}">{{ n }}</a>{{ '' if loop.last else ', ' }}{% endfor %}</div>{% endif %}
   <div class="find-act">
     {% if f.remark and f.remark.status == 'dismissed' %}
       <span class="verdict v-off">снято</span>

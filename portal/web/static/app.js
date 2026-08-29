@@ -195,6 +195,25 @@ svod.sheet = function () {
     else zoom(k === 'in' ? 1.4 : 1 / 1.4);
   }));
 
+  /* Замечание, найденное машиной, координат не имеет: кнопка в карточке
+     переводит просмотрщик в режим «покажи где», и следующий клик по листу
+     ставит метку именно этому замечанию. */
+  const place = document.getElementById('placerem');
+  let placing = null;
+  panel.querySelectorAll('[data-place]').forEach(b => b.addEventListener('click', () => {
+    placing = b.dataset.place;
+    place.setAttribute('hx-post', '/api/remarks/' + placing + '/anchor');
+    if (window.htmx) htmx.process(place);
+    document.getElementById('psubject').textContent = b.dataset.subject || '';
+    place.hidden = false; form.hidden = true;
+    const card = document.getElementById('remcard-' + placing);
+    if (card) card.classList.add('hot');
+  }));
+  const cancelPlace = document.getElementById('cancelplace');
+  if (cancelPlace) cancelPlace.addEventListener('click', () => {
+    place.hidden = true; pin.hidden = true; placing = null;
+  });
+
   /* Клик по листу ставит метку. Перетаскивание меткой не считается. */
   canvas.addEventListener('click', e => {
     if (moved || !form) return;
@@ -202,12 +221,18 @@ svod.sheet = function () {
     const x = (e.clientX - r.left) / r.width;
     const y = (e.clientY - r.top) / r.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    document.getElementById('nx').value = x.toFixed(5);
-    document.getElementById('ny').value = y.toFixed(5);
-    document.getElementById('nlabel').textContent =
-      'л. ' + page + ', точка ' + Math.round(x * 100) + '×' + Math.round(y * 100);
+    const label = 'л. ' + page + ', точка ' + Math.round(x * 100) + '×' + Math.round(y * 100);
     pin.style.left = (x * 100) + '%'; pin.style.top = (y * 100) + '%';
     pin.hidden = false;
+    if (placing) {
+      document.getElementById('px').value = x.toFixed(5);
+      document.getElementById('py').value = y.toFixed(5);
+      document.getElementById('plabel').textContent = label;
+      return;
+    }
+    document.getElementById('nx').value = x.toFixed(5);
+    document.getElementById('ny').value = y.toFixed(5);
+    document.getElementById('nlabel').textContent = label;
     form.hidden = false;
     form.querySelector('textarea').focus();
   });
@@ -229,6 +254,16 @@ svod.sheet = function () {
 
   const active = panel.querySelector('.thumb.on');
   if (active) active.scrollIntoView({ block: 'nearest' });
+
+  /* Пришли по ссылке «на листе» из списка замечаний — показываем, ради
+     какого замечания лист открыт, иначе его придётся искать глазами. */
+  const focus = panel.dataset.focus;
+  if (focus) {
+    const card = document.getElementById('remcard-' + focus);
+    if (card) card.scrollIntoView({ block: 'nearest' });
+    const dot = panel.querySelector('.pin[data-rem="' + focus + '"]');
+    if (dot) dot.classList.add('hot');
+  }
 };
 
 document.addEventListener('DOMContentLoaded', () => svod.sheet && svod.sheet());

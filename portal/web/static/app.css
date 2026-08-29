@@ -390,3 +390,11 @@ input.search:focus { border-color: var(--accent); }
 .remcard.lvl-r { border-left-color: var(--r); }
 .remcard.lvl-y { border-left-color: var(--y); }
 .remcard.hot { border-color: var(--accent); }
+.navhead { display: flex; gap: 4px; padding-bottom: 4px; }
+.seg-mini { flex: 1; text-align: center; padding: 5px 6px; font-size: 11px;
+            border: 1px solid var(--line-2); border-radius: 3px; color: var(--fg-5); }
+.seg-mini.on { background: var(--row); color: var(--fg); border-color: var(--fg-7); }
+.thumb-count { position: absolute; right: 6px; top: 6px; min-width: 16px;
+               text-align: center; font-size: 10px; padding: 1px 4px;
+               border-radius: 8px; background: var(--r); color: #fff; }
+.remcard .row-between { gap: 10px; }
