@@ -1,0 +1,125 @@
+{# панель сверки целиком: при работающем прогоне сама себя опрашивает #}
+<div id="matchpanel"
+     {% if match.busy %}hx-get="/projects/{{ project.id }}/match?doc={{ doc.id }}&q={{ match.q }}&flt={{ match.flt }}"
+     hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+
+{% if match.busy %}
+  <div class="pad">
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:660px">
+      <div class="row-between" style="font-size:12px">
+        <span class="muted">{% if match.run and match.run.stage %}Сверка: {{ match.run.stage }}{% else %}Сверка в очереди{% endif %}</span>
+        <span class="num muted">{{ (match.run.percent if match.run else 0) }} %</span>
+      </div>
+      <div class="progress"><div style="width:{{ (match.run.percent if match.run else 0) }}%"></div></div>
+      <div class="sub">Читаются все планы и схемы тома, метраж труб измеряется по геометрии
+        листов. На томе в 150 листов это несколько минут — вкладку можно закрыть,
+        сверка идёт в воркере.</div>
+    </div>
+  </div>
+
+{% elif match.error %}
+  <div class="pad">
+    <div class="err-title">Сверка не выполнена</div>
+    <div class="err-text">{{ match.error }}</div>
+    <form method="post" action="/api/documents/{{ doc.id }}/match" style="margin-top:14px">
+      <button class="btn btn-danger" type="submit">Повторить сверку</button>
+    </form>
+  </div>
+
+{% elif not match.has_run %}
+  <div class="pad">
+    <div class="mstart">
+      <div class="big">Сверка спецификации с чертежами</div>
+      <div class="why">Портал пересчитает каждую марку спецификации на планах и схемах тома:
+        штучные позиции — по числу вхождений с множителем типовых этажей, метровые —
+        по подписям длин, а если длины не подписаны, метраж труб измеряется по
+        геометрии листа. Кабели сверяются по кабельному журналу, светильники —
+        по ведомости освещения, если они есть в томе.</div>
+      <div class="why">{% if match.plan_keys %}Позиции, отобранные в плане проверки
+        ({{ match.plan_keys }}), будут помечены и покажутся первыми.{% else %}
+        В плане проверки пока ничего не отобрано — сверка пройдёт по всей
+        спецификации, но читать её будет тяжелее.{% endif %}</div>
+      <form method="post" action="/api/documents/{{ doc.id }}/match">
+        <button class="btn btn-primary" type="submit">Запустить сверку</button>
+      </form>
+    </div>
+  </div>
+
+{% else %}
+  <div class="filters">
+    <div class="row-between">
+      <div class="sub">
+        Сверено {{ match.stats.total }} {{ match.stats.total|plural('марка','марки','марок') }} ·
+        <b class="bad">{{ match.stats.problems }}</b> {{ match.stats.problems|plural('расхождение','расхождения','расхождений') }} ·
+        {{ match.stats.doubts }} под вопросом ·
+        {{ match.stats.matched }} сошлось{% if match.uncheckable %} ·
+        {{ match.uncheckable }} позиций машине не проверить{% endif %}
+      </div>
+      <form method="post" action="/api/documents/{{ doc.id }}/match">
+        <button class="btn" type="submit">Пересверить</button>
+      </form>
+    </div>
+    <div class="line">
+      <input class="search" name="q" value="{{ match.q }}" autocomplete="off"
+             placeholder="Поиск по марке или наименованию"
+             hx-get="/projects/{{ project.id }}/match"
+             hx-trigger="input changed delay:300ms"
+             hx-target="#matchpanel" hx-swap="outerHTML"
+             hx-include="#matchfilters input[type=hidden]">
+      <span id="matchfilters" hidden>
+        <input type="hidden" name="doc" value="{{ doc.id }}">
+        <input type="hidden" name="flt" value="{{ match.flt }}">
+      </span>
+      <div class="seg">
+        <a href="?tab=match&doc={{ doc.id }}&q={{ match.q }}&flt=all"
+           class="{{ 'active' if match.flt not in match.filters }}">все</a>
+        {% for key, f in match.filters.items() %}
+          <a href="?tab=match&doc={{ doc.id }}&q={{ match.q }}&flt={{ key }}"
+             class="{{ 'active' if match.flt == key }}">{{ f[0] }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <table class="grid mtable">
+    <thead>
+      <tr>
+        <th class="c-mark">Марка</th>
+        <th>Наименование по спецификации</th>
+        <th class="c-unit">Ед.</th>
+        <th class="c-num">Спец.</th>
+        <th class="c-num">Планы</th>
+        <th class="c-num">Схемы</th>
+        <th class="c-num">Точно</th>
+        <th class="c-status">Статус</th>
+        <th class="c-sheets">Листы</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for i in match.rows %}
+      <tr class="mrow lvl-{{ i.level_class }}">
+        <td class="mono">{{ i.marks|join(' · ') if i.marks else i.mark }}
+          {% if i.in_plan %}<div><span class="tag tag-plan">в плане проверки</span></div>{% endif %}</td>
+        <td>{{ i.names }}{% if i.sections %}<div class="sub">{{ i.sections|join(', ') }}</div>{% endif %}</td>
+        <td class="sub">{{ i.unit }}</td>
+        <td class="c-num num">{{ i.spec_qty|num }}</td>
+        <td class="c-num num">{{ i.plan_qty|num }}{% if i.plan_raw and i.plan_raw != i.plan_qty %}<span class="sub"> / {{ i.plan_raw|num }}</span>{% endif %}</td>
+        <td class="c-num num">{{ i.schema_qty|num }}{% if i.schema_raw and i.schema_raw != i.schema_qty %}<span class="sub"> / {{ i.schema_raw|num }}</span>{% endif %}</td>
+        <td class="c-num num">{{ i.exact_qty }}</td>
+        <td><i class="dot"></i>{{ i.status }}</td>
+        <td class="mono sub sheets">
+          {% if i.spec_pages %}<span>спец. {{ i.spec_pages|join(', ') }}</span>{% endif %}
+          {% if i.plan_pages %}<span>планы {{ i.plan_pages[:8]|join(', ') }}</span>{% endif %}
+          {% if i.schema_pages %}<span>схемы {{ i.schema_pages[:8]|join(', ') }}</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if not match.rows %}
+    <div class="empty">Под фильтр ничего не попало.</div>
+  {% elif match.truncated %}
+    <div class="pad sub">Показаны первые {{ match.rows|length }} строк — уточните фильтр или поиск.</div>
+  {% endif %}
+{% endif %}
+</div>

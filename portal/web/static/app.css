@@ -272,3 +272,25 @@ input.search:focus { border-color: var(--accent); }
 .login-err { color: var(--r-fg); font-size: 12px; }
 .side-foot .logout { display: block; margin-top: 6px; color: var(--fg-5); }
 .side-foot .logout:hover { color: var(--fg-2); }
+
+/* --- сверка с чертежами */
+.mstart { display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
+          max-width: 720px; }
+.mstart .big { font-size: 16px; }
+.mstart .why { font-size: 12px; color: var(--fg-4); line-height: 1.65; }
+.mstart form { margin-top: 6px; }
+.bad { color: var(--r-fg); font-weight: 500; }
+.mtable { table-layout: fixed; }
+.mtable .c-mark { width: 200px; }
+.mtable .c-unit { width: 48px; }
+.mtable .c-num { width: 92px; text-align: right; }
+.mtable .c-status { width: 210px; }
+.mtable .c-sheets { width: 230px; }
+.mtable td.c-num { text-align: right; white-space: nowrap; }
+.mtable .sheets span { display: block; }
+/* точка уровня стоит перед статусом: цвет читается раньше слова */
+.mrow .dot { margin-right: 7px; position: relative; top: -1px; background: var(--fg-7); }
+.mrow.lvl-r .dot { background: var(--r); }
+.mrow.lvl-y .dot { background: var(--y); }
+.mrow.lvl-g .dot { background: var(--g); }
+.tag-plan { border-color: rgba(90,124,168,.45); color: var(--fg-3); margin-top: 4px; }

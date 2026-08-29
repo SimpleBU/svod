@@ -113,6 +113,9 @@ class Document(Base, TimestampMixin):
     # расхождения между объявленным и фактическим: производны от разбора,
     # поэтому лежат json-ом рядом с томом, а не отдельной таблицей
     findings: Mapped[dict] = mapped_column(Json, default=list)
+    # итог последней сверки с чертежами: строки лежат в match_item
+    match_stats: Mapped[dict] = mapped_column(Json, default=dict)
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submission: Mapped['Submission'] = relationship(back_populates='documents')
 
@@ -333,7 +336,52 @@ class CheckRule(Base, TimestampMixin):
     from_submission_id: Mapped[int | None] = mapped_column(Integer)
 
 
+class MatchItem(Base):
+    """Строка сверки спецификации с чертежами (этап 3).
+
+    Одна строка — одна марка (для метровых позиций — ключ кабеля), в
+    которую сложились строки спецификации: на чертеже подписана марка, а
+    не номер позиции. Ключи этих строк лежат в `keys` — по ним расхождение
+    связывается с планом проверки.
+
+    Прогон переписывает строки тома целиком: сверка производна от файла
+    и плана, хранить её историю смысла нет, версия нужна только чтобы
+    отличить свежий прогон от старого.
+    """
+    __tablename__ = 'match_item'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    kind: Mapped[str] = mapped_column(String(10), default='count')   # count|length
+    mark: Mapped[str] = mapped_column(String(300), default='')
+    # как марка написана в спецификации: канон нужен машине, эксперту — оригинал
+    marks: Mapped[list] = mapped_column(Json, default=list)
+    names: Mapped[str] = mapped_column(Text, default='')
+    unit: Mapped[str] = mapped_column(String(20), default='')
+    spec_qty: Mapped[float | None] = mapped_column(Float)
+    plan_qty: Mapped[float | None] = mapped_column(Float)
+    plan_raw: Mapped[float | None] = mapped_column(Float)
+    schema_qty: Mapped[float | None] = mapped_column(Float)
+    schema_raw: Mapped[float | None] = mapped_column(Float)
+    # точный источник: кабельный журнал, ведомость освещения, подписи
+    exact_qty: Mapped[str] = mapped_column(String(40), default='')
+    status: Mapped[str] = mapped_column(String(80), default='')
+    level: Mapped[str] = mapped_column(String(10), default='ok', index=True)
+    source: Mapped[str] = mapped_column(String(80), default='')
+    keys: Mapped[list] = mapped_column(Json, default=list)
+    in_plan: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    spec_pages: Mapped[list] = mapped_column(Json, default=list)
+    plan_pages: Mapped[list] = mapped_column(Json, default=list)
+    schema_pages: Mapped[list] = mapped_column(Json, default=list)
+    sections: Mapped[list] = mapped_column(Json, default=list)
+    # решение эксперта по расхождению — этап «замечания», пока только поле
+    verdict: Mapped[str] = mapped_column(String(10), default='')
+    comment: Mapped[str] = mapped_column(Text, default='')
+
+
 Index('ix_spec_item_doc_mark', SpecItem.document_id, SpecItem.canon_mark)
 Index('ix_sheet_doc_page', Sheet.document_id, Sheet.page)
 Index('ix_check_item_plan_cls', CheckItem.plan_id, CheckItem.cls)
 Index('ix_check_rule_project_key', CheckRule.project_id, CheckRule.key, unique=True)
+Index('ix_match_item_doc_level', MatchItem.document_id, MatchItem.level)

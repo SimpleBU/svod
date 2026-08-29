@@ -149,7 +149,8 @@ def _text(ws, row, col, value, italic=False, bold=False, size=10):
     return c
 
 
-def passport_workbook_bytes(project, submission, doc, psp, plan, users=None):
+def passport_workbook_bytes(project, submission, doc, psp, plan, users=None,
+                            match_rows=()):
     """Паспорт тома и план проверки одной книгой.
 
     Экран показывает то же самое, но в переписке с бюро нужен файл, который
@@ -190,8 +191,17 @@ def passport_workbook_bytes(project, submission, doc, psp, plan, users=None):
         ('Позиций спецификации', stats.get('total', 0)),
         ('— машина предлагает проверить', stats.get('proposed', 0)),
         ('— отобрано в проверку', stats.get('included', 0)),
-        ('Выгружено', datetime.now().strftime('%d.%m.%Y %H:%M')),
     ]
+    ms = doc.match_stats or {}
+    if match_rows and not ms.get('error'):
+        lines += [
+            ('Сверка с чертежами, марок', ms.get('rows', len(match_rows))),
+            ('— расхождений', ms.get('problems', 0)),
+            ('— под вопросом', ms.get('doubts', 0)),
+            ('— сошлось', ms.get('matched', 0)),
+            ('— позиций машине не проверить', ms.get('uncheckable', 0)),
+        ]
+    lines += [('Выгружено', datetime.now().strftime('%d.%m.%Y %H:%M'))]
     for i, (k, v) in enumerate(lines, 1):
         _text(ws, i, 1, k, bold=(i == 1))
         _text(ws, i, 2, v)
@@ -281,6 +291,26 @@ def passport_workbook_bytes(project, submission, doc, psp, plan, users=None):
                   users.get(i.decided_by, ''), i.comment],
              wrap=(6, 10, 14),
              fill=LEVEL_FILL['g'] if i.included else None, fill_col=1)
+
+    # --- сверка с чертежами: лист появляется, только если она запускалась
+    if match_rows:
+        ws = _sheet(wb, 'Сверка',
+                    ['В плане', 'Марка', 'Наименование по спецификации', 'Ед.',
+                     'Спец.', 'Планы', 'Планы без множителя', 'Схемы',
+                     'Схемы без множителя', 'Точный источник', 'Статус',
+                     'Чем сверено', 'Листы спец.', 'Листы планов', 'Листы схем'],
+                    [10, 30, 56, 8, 11, 11, 16, 11, 16, 14, 26, 24, 16, 20, 20])
+        for r in match_rows:
+            _row(ws, ['да' if r.in_plan else '',
+                      ' · '.join(r.marks or []) or r.mark, r.names, r.unit,
+                      r.spec_qty, r.plan_qty, r.plan_raw, r.schema_qty,
+                      r.schema_raw, r.exact_qty, r.status, r.source,
+                      ', '.join(str(p) for p in (r.spec_pages or [])),
+                      ', '.join(str(p) for p in (r.plan_pages or [])[:20]),
+                      ', '.join(str(p) for p in (r.schema_pages or [])[:20])],
+                 wrap=(3,),
+                 fill=LEVEL_FILL.get(FINDING_LEVELS.get(r.level, ('', ''))[0]),
+                 fill_col=11)
 
     buf = io.BytesIO()
     wb.save(buf)

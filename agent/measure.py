@@ -97,11 +97,13 @@ def measure_pipes(page, scale, segs):
     return dict(sums), float(lens[~ok].sum())
 
 
-def measure_plan_pages(doc, page_infos, page_multiplier):
+def measure_plan_pages(doc, page_infos, page_multiplier, progress=None):
     """Суммарный измеренный метраж по всем планам с множителем этажей."""
     total = defaultdict(float)
     measured_pages = []
-    for pi in page_infos:
+    for n, pi in enumerate(page_infos):
+        if progress:
+            progress(n, len(page_infos))
         page = doc[pi['page'] - 1]
         H, segs = _collect_geometry(page)
         if not segs:

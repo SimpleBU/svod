@@ -259,7 +259,7 @@ def build_m_vocab(spec_items):
 LEN_PAT = re.compile(r'[-–—]\s*(\d+(?:[.,]\d+)?)\s*(м|км)\b')
 
 
-def count_lengths_on_pages(doc, page_infos, mvocab):
+def count_lengths_on_pages(doc, page_infos, mvocab, progress=None):
     """Для м/км-позиций: сумма подписанных длин и число меток на чертежах.
 
     Длина берётся из подписей вида «<марка> - 5 м» (на одной строке).
@@ -268,7 +268,9 @@ def count_lengths_on_pages(doc, page_infos, mvocab):
     lengths = {c: 0.0 for c in mvocab}
     presence = {c: 0.0 for c in mvocab}
     detail = {c: [] for c in mvocab}
-    for pi in page_infos:
+    for n, pi in enumerate(page_infos):
+        if progress:
+            progress(n, len(page_infos))
         mult = page_multiplier(pi)
         lines = [norm_text(l) for l in doc[pi['page'] - 1].get_text().splitlines()]
         for canon, v in mvocab.items():
@@ -428,7 +430,8 @@ def caption_counts_on_pages(doc, page_infos, vocab, doc_aliases=None):
     return sums, detail
 
 
-def count_on_pages(doc, page_infos, vocab, doc_aliases=None, assembly=None):
+def count_on_pages(doc, page_infos, vocab, doc_aliases=None, assembly=None,
+                   progress=None):
     """Подсчёт вхождений марок на страницах.
 
     Марка ищется и в тексте без пробелов (переносы в ячейках спецификации
@@ -449,7 +452,9 @@ def count_on_pages(doc, page_infos, vocab, doc_aliases=None, assembly=None):
     assembly = assembly or set()
     doc_aliases = doc_aliases or {}
     longer = longer_keys(vocab)
-    for pi in page_infos:
+    for n, pi in enumerate(page_infos):
+        if progress:
+            progress(n, len(page_infos))
         raw_text = doc[pi['page'] - 1].get_text()
         lines = [norm_text(l) for l in raw_text.splitlines()]
         text = norm_text(raw_text.replace('\n', ' '))
@@ -576,6 +581,7 @@ def reconcile(spec_items, plan_counts, plan_detail, schema_counts, schema_detail
             if used_meas and sides:
                 status += ' (по измерению)'
         rows.append({
+            'kind': 'length',
             'mark': mkey, 'names': ' | '.join(sorted({i['name'][:80] for i in items})),
             'unit': items[0]['unit'], 'spec_qty': spec_qty,
             'plan_qty': round(pl, 2), 'plan_raw': pn,
@@ -699,4 +705,16 @@ def reconcile(spec_items, plan_counts, plan_detail, schema_counts, schema_detail
             'sections': sorted({i['section'] for i in items}),
         })
         seen_marks.add(canon)
+
+    # чьи строки спецификации сложились в эту строку сверки: портал связывает
+    # расхождение с позицией плана проверки, а для этого нужна не только марка
+    groups = {('length', k): v for k, v in by_mkey.items()}
+    groups.update({('count', k): v for k, v in by_mark.items()})
+    for r in rows:
+        r.setdefault('kind', 'count')
+        r['spec_rows'] = [{'mark': (i.get('mark') or '').strip(),
+                           'name': (i.get('name') or '').strip(),
+                           'unit': (i.get('unit') or '').strip(),
+                           'pos': (i.get('pos') or '').strip()}
+                          for i in groups.get((r['kind'], r['mark']), [])]
     return rows, unrows

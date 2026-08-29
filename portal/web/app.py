@@ -23,13 +23,14 @@ from agent.api import KIND_LABELS, KIND_ORDER
 from .. import auth
 from .. import checkplan as plan_service
 from .. import config, models, nomenclature, passport as passport_service
+from .. import match as match_service
 from ..db import SessionLocal, upgrade_schema
 from ..exporting import passport_workbook_bytes, workbook_bytes
 from ..flags import readiness, document_flags
 from ..models import (CheckItem, CheckPlan, Document, Org, Project, Run,
                       Submission, Symbol, User)
 from ..naming import parse_filename
-from ..queue import enqueue_intake
+from ..queue import enqueue_intake, enqueue_match
 from ..storage import get_storage, object_key
 
 log = logging.getLogger(__name__)
@@ -262,11 +263,17 @@ def _load(s, project_id):
 
 
 def _runs(s, docs):
+    """Последний прогон разбора по каждому тому.
+
+    Прогоны сверки сюда не попадают: состав комплекта показывает ход
+    приёмки, и запущенная сверка не должна выглядеть как повторный разбор.
+    """
     if not docs:
         return {}
     ids = [d.id for d in docs]
     out = {}
-    for r in s.scalars(select(Run).where(Run.document_id.in_(ids))
+    for r in s.scalars(select(Run).where(Run.document_id.in_(ids),
+                                         Run.kind == 'intake')
                        .order_by(Run.id)).all():
         out[r.document_id] = r
     return out
@@ -334,12 +341,15 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
         ctx['composition'] = _composition(s, p, sub)
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
-        elif tab in ('passport', 'checkplan'):
+        elif tab in ('passport', 'checkplan', 'match'):
             picked, docs = _pick_doc(sub, doc)
             ctx['docs'] = docs
             ctx['doc'] = picked
             if picked is not None and tab == 'passport':
                 ctx['psp'] = passport_service.context(s, picked)
+            elif picked is not None and tab == 'match':
+                ctx['match'] = match_service.context(s, picked, q,
+                                                     flt if flt else None)
             elif picked is not None:
                 ctx['plan'] = _plan_ctx(s, picked, q, flt)
         return templates.TemplateResponse(request, 'project.html', ctx)
@@ -358,6 +368,37 @@ def checkplan_rows(request: Request, project_id: int, doc: int = 0,
             raise HTTPException(404, 'том не разобран')
         return templates.TemplateResponse(request, '_checkplan_table.html', {
             'request': request, 'project': p, 'plan': _plan_ctx(s, picked, q, flt)})
+
+
+@app.get('/projects/{project_id}/match', response_class=HTMLResponse)
+def match_panel(request: Request, project_id: int, doc: int = 0,
+                q: str = '', flt: str = ''):
+    """Перерисовка панели сверки: фильтры, поиск и опрос прогресса."""
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        if picked is None:
+            raise HTTPException(404, 'том не разобран')
+        return templates.TemplateResponse(request, '_match_panel.html', {
+            'request': request, 'project': p, 'doc': picked,
+            'match': match_service.context(s, picked, q, flt if flt else None)})
+
+
+@app.post('/api/documents/{document_id}/match', response_class=HTMLResponse)
+def match_start(request: Request, document_id: int):
+    """Запуск сверки. Том должен быть разобран: сверять нечего до приёмки."""
+    with db() as s:
+        d = s.get(Document, document_id)
+        if d is None:
+            raise HTTPException(404, 'том не найден')
+        if d.status != models.DONE:
+            raise HTTPException(409, 'том ещё не разобран')
+        project_id, _ = plan_service.project_of(s, d)
+        d.match_stats = {}
+        s.commit()
+    enqueue_match(document_id)
+    return RedirectResponse(f'/projects/{project_id}?tab=match&doc={document_id}',
+                            status_code=303)
 
 
 def _row_response(request, s, project, item):
@@ -531,7 +572,8 @@ def project_passport_xlsx(project_id: int, doc: int = 0):
         psp = passport_service.context(s, picked)
         plan = _plan_ctx(s, picked)
         users = {u.id: (u.name or u.email) for u in s.scalars(select(User)).all()}
-        data = passport_workbook_bytes(p, sub, picked, psp, plan, users)
+        data = passport_workbook_bytes(p, sub, picked, psp, plan, users,
+                                       match_service.items(s, picked.id))
         stem = picked.cipher or picked.filename.rsplit('.', 1)[0]
     return _xlsx(data, f'{stem}_паспорт.xlsx')
 

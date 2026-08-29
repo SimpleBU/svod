@@ -497,6 +497,192 @@ def checkplan(res: IntakeResult, psp: PassportResult):
                            res.capabilities.as_dict(), res.kind_counts)
 
 
+# --------------------------------------------------------------- этап 3
+
+# стадии сверки — текст показывается эксперту как есть
+S_PLANS = 'счёт по планам'
+S_SCHEMAS = 'счёт по схемам'
+S_LENGTHS = 'метраж по подписям'
+S_MEASURE = 'измерение труб по геометрии'
+S_RECONCILE = 'сведение с спецификацией'
+
+# статус строки сверки -> уровень. Всё, что не названо, — «сошлось»:
+# статусы дописываются уточнением в скобках, поэтому сравниваем по началу
+MATCH_LEVELS = (
+    ('расхождение', RED),
+    ('нет на чертежах', RED),
+    ('есть на чертежах, метраж не подписан', AMBER),
+    ('ок (частично)', AMBER),
+    ('узел', AMBER),
+)
+
+
+def match_level(status: str) -> str:
+    for prefix, level in MATCH_LEVELS:
+        if (status or '').startswith(prefix):
+            return level
+    return OK
+
+
+@dataclass
+class MatchRow:
+    """Строка сверки: одна марка (или ключ кабеля) против чертежей."""
+    kind: str            # count | length
+    mark: str            # канонический ключ сверки
+    marks: list          # как марка написана в спецификации — это и показываем
+    names: str
+    unit: str
+    spec_qty: float
+    plan_qty: float
+    plan_raw: float
+    schema_qty: float
+    schema_raw: float
+    exact_qty: float | str      # журнал, ведомость, подписи — точный источник
+    status: str
+    level: str
+    source: str                 # чем сверено: «по кабельному журналу» и т.п.
+    keys: list                  # ключи позиций плана проверки
+    in_plan: bool               # хотя бы одна из позиций отобрана экспертом
+    spec_pages: list
+    plan_pages: list
+    schema_pages: list
+    sections: list
+
+
+@dataclass
+class MatchResult:
+    rows: list
+    uncheckable: list
+    stats: dict
+    raw: tuple = ()             # (rows, unrows, pages) для отчёта CLI
+
+    def as_dict(self):
+        return dict(self.stats)
+
+
+def _source(status):
+    """«ок (по кабельному журналу)» -> «по кабельному журналу»."""
+    m = re.search(r'\(([^)]*)\)\s*$', status or '')
+    return m.group(1) if m else ''
+
+
+def _match_stats(rows, unrows):
+    by_level = {RED: 0, AMBER: 0, OK: 0}
+    for r in rows:
+        by_level[r.level] = by_level.get(r.level, 0) + 1
+    return {'rows': len(rows), 'uncheckable': len(unrows),
+            'problems': by_level[RED], 'doubts': by_level[AMBER],
+            'matched': by_level[OK],
+            'in_plan': sum(1 for r in rows if r.in_plan),
+            'in_plan_problems': sum(1 for r in rows
+                                    if r.in_plan and r.level == RED)}
+
+
+def reconcile(pdf, keys=(), progress=None) -> MatchResult:
+    """Этап 3: сверка спецификации с планами и схемами тома.
+
+    Пайплайн тот же, что в CLI `python -m agent.run`, — здесь он собран
+    в фасад, чтобы портал получал строки, а не файл. keys — ключи позиций
+    из плана проверки; строки, которые к ним относятся, помечаются, а не
+    отфильтровываются: расхождение по позиции, которую эксперт не отбирал,
+    всё равно стоит показать.
+    """
+    from .match import (assembly_pages, build_doc_aliases, build_vocab,
+                        build_m_vocab, caption_counts_on_pages, count_on_pages,
+                        count_lengths_on_pages, reconcile as match_reconcile,
+                        tag_presence_counts)
+    from .measure import measure_plan_pages, map_measured_to_mkeys
+    from .cable_journal import parse_journal
+    from .lighting import parse_lighting_lists
+    from .devices import count_devices, match_spec_devices, spec_device_key
+    from .criticality import position_key
+
+    p = _Progress(progress)
+    own = not hasattr(pdf, 'load_page')
+    doc = fitz.open(str(pdf)) if own else pdf
+    try:
+        pages = classify_pages(doc, progress=p.stage(S_CLASSIFY))
+        spec_pages = [pi['page'] for pi in pages if pi['kind'] == 'spec']
+        if not spec_pages:
+            raise ValueError('в томе нет спецификации — сверять не с чем')
+        items = parse_spec(doc, spec_pages, progress=p.stage(S_SPEC))
+        vocab = build_vocab(items)
+        mvocab = build_m_vocab(items)
+
+        plan_pages = [pi for pi in pages if pi['kind'] == 'plan']
+        schema_pages = [pi for pi in pages if pi['kind'] == 'schema']
+        drawings = plan_pages + schema_pages
+        aliases = build_doc_aliases(doc, drawings, vocab)
+        asm = assembly_pages(doc, drawings)
+
+        pc, praw, pd_, pasm = count_on_pages(doc, plan_pages, vocab, aliases, asm,
+                                             progress=p.stage(S_PLANS))
+        sc, sraw, sd_, sasm = count_on_pages(doc, schema_pages, vocab, aliases, asm,
+                                             progress=p.stage(S_SCHEMAS))
+        tsums, tdetail = tag_presence_counts(doc, drawings, vocab)
+        csums, cdetail = caption_counts_on_pages(
+            doc, [pi for pi in drawings if pi['page'] not in asm], vocab, aliases)
+        # листы типовых узлов повторяют один фрагмент — в метраж не идут
+        pl, pp, pld = count_lengths_on_pages(
+            doc, [pi for pi in plan_pages if pi['page'] not in asm], mvocab,
+            progress=p.stage(S_LENGTHS))
+        sl, sp, sld = count_lengths_on_pages(
+            doc, [pi for pi in schema_pages if pi['page'] not in asm], mvocab)
+        measured, measured_pages = measure_plan_pages(doc, plan_pages, page_multiplier,
+                                                      progress=p.stage(S_MEASURE))
+        plan_meas = map_measured_to_mkeys(measured, mvocab, items)
+
+        jpages = journal_pages(doc)
+        jsums, jdetail = parse_journal(doc, jpages) if jpages else ({}, {})
+        lsums, ldetail = parse_lighting_lists(doc, drawings)
+        lsums = {k.replace(' ', ''): v for k, v in lsums.items()}
+        ldetail = {k.replace(' ', ''): v for k, v in ldetail.items()}
+        dcounts, ddetail = count_devices(doc, schema_pages + plan_pages)
+        spec_marks = {}
+        for it in items:
+            mark = (it.get('mark') or '').strip()
+            if mark and not it.get('excluded') and spec_device_key(mark):
+                spec_marks[canon_mark(mark)] = mark
+        dsums = match_spec_devices(dcounts, ddetail, spec_marks)
+
+        p.tick(S_RECONCILE, 0, 1)
+        raw_rows, unrows = match_reconcile(
+            items, pc, pd_, sc, sd_, vocab, praw, sraw,
+            journal_sums=jsums, journal_detail=jdetail,
+            light_sums=lsums, light_detail=ldetail, device_sums=dsums,
+            plan_asm=pasm, schema_asm=sasm,
+            caption_sums=csums, caption_detail=cdetail,
+            tag_sums=tsums, tag_detail=tdetail, mvocab=mvocab,
+            plan_len=pl, plan_pres=pp, plan_len_detail=pld,
+            schema_len=sl, schema_pres=sp, schema_len_detail=sld,
+            plan_meas=plan_meas, measured_pages=measured_pages)
+
+        wanted = set(keys or ())
+        rows = []
+        for r in raw_rows:
+            rkeys = [position_key(s['mark'], s['name'], s['unit'], s['pos'])
+                     for s in r.get('spec_rows', [])]
+            marks = sorted({s['mark'] for s in r.get('spec_rows', []) if s['mark']})
+            rows.append(MatchRow(
+                kind=r.get('kind', 'count'), mark=r['mark'], marks=marks,
+                names=r['names'],
+                unit=r['unit'], spec_qty=r['spec_qty'],
+                plan_qty=r['plan_qty'], plan_raw=r['plan_raw'],
+                schema_qty=r['schema_qty'], schema_raw=r['schema_raw'],
+                exact_qty=r['journal_qty'], status=r['status'],
+                level=match_level(r['status']), source=_source(r['status']),
+                keys=rkeys, in_plan=any(k in wanted for k in rkeys),
+                spec_pages=r['spec_pages'], plan_pages=r['plan_pages'],
+                schema_pages=r['schema_pages'], sections=r['sections']))
+        p.tick(S_RECONCILE, 1, 1)
+        return MatchResult(rows=rows, uncheckable=unrows,
+                           stats=_match_stats(rows, unrows),
+                           raw=(raw_rows, unrows, pages))
+    finally:
+        if own:
+            doc.close()
+
+
 def main():
     """Отладочный запуск: python -m agent.api <файл.pdf>"""
     import sys

@@ -18,13 +18,13 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 
 from . import models
 from .db import SessionLocal
 from .models import (CheckItem, CheckPlan, CheckRule, DeclaredSheet, DocRef,
-                     Document, NormRef, RevisionEntry, Run, Sheet, SpecItem,
-                     Submission, Symbol)
+                     Document, MatchItem, NormRef, RevisionEntry, Run, Sheet,
+                     SpecItem, Submission, Symbol)
 from .storage import get_storage, symbol_key
 
 log = logging.getLogger(__name__)
@@ -37,6 +37,16 @@ STAGE_WEIGHTS = [
     ('разбор общих данных', 0.85, 0.07),
     ('условные обозначения', 0.92, 0.08),
 ]
+# сверка: измерение труб по геометрии — самая долгая стадия
+MATCH_WEIGHTS = [
+    ('классификация листов', 0.0, 0.18),
+    ('разбор спецификации', 0.18, 0.12),
+    ('счёт по планам', 0.30, 0.20),
+    ('счёт по схемам', 0.50, 0.08),
+    ('метраж по подписям', 0.58, 0.05),
+    ('измерение труб по геометрии', 0.63, 0.32),
+    ('сведение с спецификацией', 0.95, 0.05),
+]
 PROGRESS_EVERY = 1.0  # секунда: чаще писать в БД незачем
 
 
@@ -47,11 +57,13 @@ def _now():
 def _human(stage, done, total):
     if stage == 'условные обозначения':
         return f'условные обозначения, символ {done} из {total}'
+    if total <= 1:
+        return stage
     return f'{stage}, лист {min(done + 1, total)} из {total}'
 
 
-def _percent(stage, done, total):
-    for name, base, share in STAGE_WEIGHTS:
+def _percent(stage, done, total, weights=None):
+    for name, base, share in (weights or STAGE_WEIGHTS):
         if name == stage:
             frac = (done / total) if total else 0
             return int(round((base + share * min(frac, 1.0)) * 100))
@@ -164,6 +176,120 @@ def run_intake(document_id):
         if tmpdir is not None:
             tmpdir.cleanup()
         session.close()
+
+
+# ------------------------------------------------------- этап 3: сверка
+
+def run_match(document_id):
+    """Сверка тома с чертежами. Запускается руками: она дороже приёмки.
+
+    Позиции, отобранные экспертом в плане проверки, передаются в фасад —
+    строки сверки, которые к ним относятся, помечаются `in_plan`. Не
+    отфильтровываются: расхождение по позиции, которую эксперт не отбирал,
+    всё равно стоит показать, просто не первым экраном.
+    """
+    session = SessionLocal()
+    run = None
+    tmpdir = None
+    try:
+        doc = session.get(Document, document_id)
+        if doc is None:
+            log.warning('том %s не найден', document_id)
+            return
+        run = Run(org_id=doc.org_id, document_id=doc.id, kind='match',
+                  status=models.RUNNING, started_at=_now())
+        session.add(run)
+        session.commit()
+
+        last = [0.0]
+
+        def progress(stage, done, total):
+            now = time.monotonic()
+            if now - last[0] < PROGRESS_EVERY:
+                return
+            last[0] = now
+            run.stage = _human(stage, done, total)
+            run.done, run.total = done, total
+            run.percent = _percent(stage, done, total, MATCH_WEIGHTS)
+            session.commit()
+
+        tmpdir = tempfile.TemporaryDirectory(prefix='svod-')
+        local = Path(tmpdir.name) / 'том.pdf'
+        get_storage().download_to(doc.file_key, local)
+
+        keys = _plan_keys(session, doc)
+        from agent.api import reconcile
+        result = reconcile(local, keys=keys, progress=progress)
+
+        version = (session.scalar(
+            select(func.max(MatchItem.version))
+            .where(MatchItem.document_id == doc.id)) or 0) + 1
+        session.execute(delete(MatchItem).where(MatchItem.document_id == doc.id))
+        if result.rows:
+            session.execute(insert(MatchItem), [
+                {'document_id': doc.id, 'version': version, 'kind': r.kind,
+                 'mark': (r.mark or '')[:300], 'marks': r.marks, 'names': r.names,
+                 'unit': (r.unit or '')[:20], 'spec_qty': _f(r.spec_qty),
+                 'plan_qty': _f(r.plan_qty), 'plan_raw': _f(r.plan_raw),
+                 'schema_qty': _f(r.schema_qty), 'schema_raw': _f(r.schema_raw),
+                 'exact_qty': str(r.exact_qty)[:40], 'status': r.status[:80],
+                 'level': r.level, 'source': (r.source or '')[:80],
+                 'keys': r.keys, 'in_plan': r.in_plan,
+                 'spec_pages': r.spec_pages, 'plan_pages': r.plan_pages,
+                 'schema_pages': r.schema_pages, 'sections': r.sections,
+                 'verdict': '', 'comment': ''}
+                for r in result.rows])
+
+        doc.match_stats = dict(result.stats, version=version,
+                               plan_keys=len(keys))
+        doc.matched_at = _now()
+        run.status = models.DONE
+        run.percent = 100
+        run.stage = 'готово'
+        run.finished_at = _now()
+        run.stats = result.stats
+        session.commit()
+        log.info('том %s сверен: %s строк, проблемных %s', doc.id,
+                 result.stats['rows'], result.stats['problems'])
+    except Exception as exc:  # noqa: BLE001 — сообщение уходит эксперту
+        session.rollback()
+        text = _explain(exc)
+        log.error('том %s: ошибка сверки: %s', document_id, traceback.format_exc())
+        try:
+            if run is not None:
+                run = session.get(Run, run.id) or run
+                run.status = models.ERROR
+                run.error = text
+                run.finished_at = _now()
+            doc = session.get(Document, document_id)
+            if doc is not None:
+                doc.match_stats = {'error': text}
+            session.commit()
+        except Exception:
+            log.exception('не удалось записать ошибку сверки тома %s', document_id)
+    finally:
+        if tmpdir is not None:
+            tmpdir.cleanup()
+        session.close()
+
+
+def _f(v):
+    """Пустая строка из отчёта -> NULL: в числовой колонке ей не место."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_keys(session, doc):
+    """Ключи позиций, отобранных экспертом в свежем плане проверки."""
+    plan = session.scalars(
+        select(CheckPlan).where(CheckPlan.document_id == doc.id)
+        .order_by(CheckPlan.version.desc())).first()
+    if plan is None:
+        return set()
+    return {i.key for i in session.scalars(
+        select(CheckItem).where(CheckItem.plan_id == plan.id)).all() if i.included}
 
 
 # ------------------------------------------------------- паспорт и план
