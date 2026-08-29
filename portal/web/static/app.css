@@ -294,3 +294,35 @@ input.search:focus { border-color: var(--accent); }
 .mrow.lvl-y .dot { background: var(--y); }
 .mrow.lvl-g .dot { background: var(--g); }
 .tag-plan { border-color: rgba(90,124,168,.45); color: var(--fg-3); margin-top: 4px; }
+
+/* --- решения по расхождениям и замечания */
+.btn-mini { padding: 4px 9px; font-size: 12px; }
+.link { background: none; border: 0; padding: 0; color: var(--fg-5); cursor: pointer;
+        font-size: 12px; text-decoration: underline dotted; }
+.link:hover { color: var(--fg-2); }
+.mtable .c-act { width: 150px; }
+.mtable td.c-act { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.mrow.decided { opacity: .72; }
+.verdict { font-size: 12px; }
+.v-on { color: var(--r-fg); } .v-off { color: var(--fg-5); }
+.find-act { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.find.decided { opacity: .72; }
+
+.rems { display: flex; flex-direction: column; gap: 10px; padding: 18px 28px 40px; }
+.rem { border: 1px solid var(--line); border-left: 2px solid var(--fg-7);
+       background: var(--panel); border-radius: 4px; padding: 12px 16px;
+       display: flex; flex-direction: column; gap: 9px; }
+.rem.lvl-r { border-left-color: var(--r); }
+.rem.lvl-y { border-left-color: var(--y); }
+.rem.lvl-g { border-left-color: var(--g); }
+.rem-off { opacity: .6; }
+.rem-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.rem-subj { font-size: 13px; font-weight: 500; }
+.rem-meta { display: flex; align-items: center; gap: 8px; }
+.rem-text textarea { width: 100%; padding: 8px 10px; background: var(--panel-2);
+    border: 1px solid var(--line-2); border-radius: 3px; color: var(--fg);
+    font: inherit; line-height: 1.55; resize: vertical; outline: none; }
+.rem-text textarea:focus { border-color: var(--accent); }
+.rem-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.rem-act { display: flex; gap: 14px; flex-shrink: 0; }
+.rem-note { padding: 0 28px 6px; }

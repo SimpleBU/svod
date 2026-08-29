@@ -91,29 +91,12 @@
         <th class="c-num">Планы</th>
         <th class="c-num">Схемы</th>
         <th class="c-num">Точно</th>
-        <th class="c-status">Статус</th>
-        <th class="c-sheets">Листы</th>
+        <th class="c-status">Статус и листы</th>
+        <th class="c-act">Решение</th>
       </tr>
     </thead>
     <tbody>
-    {% for i in match.rows %}
-      <tr class="mrow lvl-{{ i.level_class }}">
-        <td class="mono">{{ i.marks|join(' · ') if i.marks else i.mark }}
-          {% if i.in_plan %}<div><span class="tag tag-plan">в плане проверки</span></div>{% endif %}</td>
-        <td>{{ i.names }}{% if i.sections %}<div class="sub">{{ i.sections|join(', ') }}</div>{% endif %}</td>
-        <td class="sub">{{ i.unit }}</td>
-        <td class="c-num num">{{ i.spec_qty|num }}</td>
-        <td class="c-num num">{{ i.plan_qty|num }}{% if i.plan_raw and i.plan_raw != i.plan_qty %}<span class="sub"> / {{ i.plan_raw|num }}</span>{% endif %}</td>
-        <td class="c-num num">{{ i.schema_qty|num }}{% if i.schema_raw and i.schema_raw != i.schema_qty %}<span class="sub"> / {{ i.schema_raw|num }}</span>{% endif %}</td>
-        <td class="c-num num">{{ i.exact_qty }}</td>
-        <td><i class="dot"></i>{{ i.status }}</td>
-        <td class="mono sub sheets">
-          {% if i.spec_pages %}<span>спец. {{ i.spec_pages|join(', ') }}</span>{% endif %}
-          {% if i.plan_pages %}<span>планы {{ i.plan_pages[:8]|join(', ') }}</span>{% endif %}
-          {% if i.schema_pages %}<span>схемы {{ i.schema_pages[:8]|join(', ') }}</span>{% endif %}
-        </td>
-      </tr>
-    {% endfor %}
+    {% for i in match.rows %}{% include '_match_row.html' %}{% endfor %}
     </tbody>
   </table>
   {% if not match.rows %}

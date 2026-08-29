@@ -24,6 +24,9 @@ DRAFT, FROZEN = 'draft', 'frozen'
 # решение эксперта по позиции: не трогал / беру / снимаю
 AUTO, TAKE, SKIP = 'auto', 'take', 'skip'
 
+# замечание: принято в работу / снято как ложная тревога / отправлено бюро
+OPEN, DISMISSED, SENT = 'open', 'dismissed', 'sent'
+
 
 class Base(DeclarativeBase):
     pass
@@ -380,8 +383,42 @@ class MatchItem(Base):
     comment: Mapped[str] = mapped_column(Text, default='')
 
 
+class Remark(Base, TimestampMixin):
+    """Решение эксперта по расхождению — то, что уходит бюро.
+
+    Отдельная таблица, а не поле в `match_item`, по одной причине: строки
+    сверки переписываются каждым прогоном, а решение эксперта переживать
+    пересверку обязано. Связь держится ключом, устойчивым к прогону:
+    для сверки это вид и каноническая марка, для паспорта — код
+    расхождения и отпечаток текста.
+
+    Снятое расхождение («ложная тревога») тоже хранится здесь: иначе после
+    пересверки оно вернулось бы как непросмотренное.
+    """
+    __tablename__ = 'remark'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey('org.id', ondelete='CASCADE'), index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    source: Mapped[str] = mapped_column(String(10), default='match')   # match|passport
+    key: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(10), default=OPEN, index=True)
+    level: Mapped[str] = mapped_column(String(10), default='red')
+    # что показывать в списке: марка или тип проверки
+    subject: Mapped[str] = mapped_column(String(300), default='')
+    # формулировка для бюро — её правит эксперт
+    text: Mapped[str] = mapped_column(Text, default='')
+    # что нашла машина: остаётся как было, даже если формулировку переписали
+    evidence: Mapped[str] = mapped_column(Text, default='')
+    sheets: Mapped[list] = mapped_column(Json, default=list)
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey('app_user.id', ondelete='SET NULL'))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 Index('ix_spec_item_doc_mark', SpecItem.document_id, SpecItem.canon_mark)
 Index('ix_sheet_doc_page', Sheet.document_id, Sheet.page)
 Index('ix_check_item_plan_cls', CheckItem.plan_id, CheckItem.cls)
 Index('ix_check_rule_project_key', CheckRule.project_id, CheckRule.key, unique=True)
 Index('ix_match_item_doc_level', MatchItem.document_id, MatchItem.level)
+Index('ix_remark_doc_key', Remark.document_id, Remark.key, unique=True)

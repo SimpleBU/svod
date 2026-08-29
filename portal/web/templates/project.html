@@ -18,11 +18,12 @@
     </div>
   </div>
   <div class="tabs">
-    <a href="/projects/{{ project.id }}?tab=composition" class="{{ 'active' if tab not in ('nomenclature', 'passport', 'checkplan', 'match') }}">Состав комплекта</a>
+    <a href="/projects/{{ project.id }}?tab=composition" class="{{ 'active' if tab not in ('nomenclature', 'passport', 'checkplan', 'match', 'remarks') }}">Состав комплекта</a>
     <a href="/projects/{{ project.id }}?tab=passport" class="{{ 'active' if tab == 'passport' }}">Паспорт тома</a>
     <a href="/projects/{{ project.id }}?tab=nomenclature" class="{{ 'active' if tab == 'nomenclature' }}">Номенклатура</a>
     <a href="/projects/{{ project.id }}?tab=checkplan" class="{{ 'active' if tab == 'checkplan' }}">План проверки</a>
     <a href="/projects/{{ project.id }}?tab=match" class="{{ 'active' if tab == 'match' }}">Сверка с чертежами</a>
+    <a href="/projects/{{ project.id }}?tab=remarks" class="{{ 'active' if tab == 'remarks' }}">Замечания</a>
   </div>
 </div>
 
@@ -52,6 +53,8 @@
     {% include '_checkplan.html' %}
   {% elif tab == 'match' %}
     {% include '_match.html' %}
+  {% elif tab == 'remarks' %}
+    {% include '_remarks.html' %}
   {% else %}
     {% include '_composition.html' %}
   {% endif %}

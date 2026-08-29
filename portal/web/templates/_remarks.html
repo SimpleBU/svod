@@ -1,0 +1,44 @@
+{% if not doc %}
+  <div class="empty">Ни один том ещё не разобран. Загрузите PDF на вкладке «Состав комплекта».</div>
+{% else %}
+<div class="docbar">
+  {% for d in docs %}
+    <a href="?tab=remarks&doc={{ d.id }}" class="{{ 'active' if d.id == doc.id }}">{{ d.cipher or d.filename }}</a>
+  {% endfor %}
+</div>
+
+{% if not remarks.rows %}
+  <div class="pad">
+    <div class="mstart">
+      <div class="big">Замечаний пока нет</div>
+      <div class="why">Замечание заводится с расхождения: на вкладке «Паспорт тома» — кнопкой
+        у расхождения в составе, на вкладке «Сверка с чертежами» — кнопкой в строке.
+        Формулировку портал предлагает сам, эксперт правит её здесь и подписывает
+        своим именем.</div>
+      <a class="btn" href="?tab=match&doc={{ doc.id }}">Перейти к сверке</a>
+    </div>
+  </div>
+{% else %}
+  <div class="filters">
+    <div class="row-between">
+      <div class="sub">
+        {{ remarks.stats.total }} {{ remarks.stats.total|plural('замечание','замечания','замечаний') }} ·
+        <b>{{ remarks.stats.open }}</b> в работе ·
+        {{ remarks.stats.sent }} передано бюро ·
+        {{ remarks.stats.dismissed }} снято
+      </div>
+      <a class="btn" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
+    </div>
+  </div>
+  <div class="rems">
+  {% for r in remarks.rows %}
+    {% set users = remarks.users %}
+    {% include '_remark.html' %}
+    {% if r.id in remarks.orphaned %}
+      <div class="sub rem-note">Строки сверки с этой маркой в последнем прогоне нет —
+        возможно, бюро исправило чертёж.</div>
+    {% endif %}
+  {% endfor %}
+  </div>
+{% endif %}
+{% endif %}

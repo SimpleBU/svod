@@ -7,6 +7,7 @@
 """
 from sqlalchemy import select
 
+from . import remarks as remark_service
 from .models import (DeclaredSheet, DocRef, Document, NormRef, RevisionEntry,
                      Symbol)
 
@@ -47,8 +48,12 @@ def context(session, doc: Document):
         select(Symbol).where(Symbol.document_id == doc.id)
         .order_by(Symbol.id)).all()
 
-    findings = [dict(f, level_class=LEVELS.get(f.get('level'), ''))
-                for f in (doc.findings or [])]
+    # порядковый номер расхождения — это его адрес в интерфейсе: расхождения
+    # лежат json-ом рядом с томом, id у них нет
+    known = remark_service.by_key(session, doc.id)
+    findings = [dict(f, index=n, level_class=LEVELS.get(f.get('level'), ''),
+                     remark=known.get(remark_service.passport_key(f)))
+                for n, f in enumerate(doc.findings or [])]
     gaps = {n for f in findings if f.get('code') == 'sheet_gap'
             for n in (f.get('sheets') or [])}
 

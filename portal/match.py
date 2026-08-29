@@ -11,7 +11,7 @@
 """
 from sqlalchemy import select
 
-from . import models
+from . import models, remarks as remark_service
 from .models import MatchItem, Run
 
 LEVELS = {'red': 'r', 'amber': 'y', 'ok': 'g'}
@@ -24,6 +24,7 @@ FILTERS = {
     'missing': ('нет на чертежах',
                 lambda i: (i.status or '').startswith('нет на чертежах')),
     'length': ('метраж', lambda i: i.kind == 'length'),
+    'undecided': ('без решения', lambda i: not getattr(i, 'remark', None)),
 }
 
 MAX_ROWS = 800
@@ -37,8 +38,16 @@ def current_run(session, document_id):
 
 
 def items(session, document_id):
+    """Строки сверки с привязанным решением эксперта.
+
+    Решение живёт в отдельной таблице и переживает пересверку, поэтому
+    подтягивается по ключу, а не по id строки.
+    """
     rows = session.scalars(
         select(MatchItem).where(MatchItem.document_id == document_id)).all()
+    known = remark_service.by_key(session, document_id)
+    for i in rows:
+        i.remark = known.get(remark_service.match_key(i))
     return sorted(rows, key=lambda i: (not i.in_plan,
                                        LEVEL_ORDER.get(i.level, 3),
                                        i.mark or ''))

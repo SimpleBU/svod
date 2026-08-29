@@ -1,0 +1,42 @@
+{# одно замечание: формулировку правит эксперт, машинную находку — нет #}
+<div class="rem lvl-{{ 'r' if r.level == 'red' else ('y' if r.level == 'amber' else 'g') }}{{ ' rem-off' if r.status == 'dismissed' }}"
+     id="rem-{{ r.id }}">
+  <div class="rem-head">
+    <div class="mono rem-subj">{{ r.subject }}</div>
+    <div class="rem-meta">
+      <span class="tag">{{ 'сверка' if r.source == 'match' else 'паспорт' }}</span>
+      <span class="tag {{ 'tag-g' if r.status == 'open' }}">{{
+        {'open': 'в работе', 'sent': 'передано бюро', 'dismissed': 'снято'}[r.status] }}</span>
+      {% if r.author_id and users.get(r.author_id) %}<span class="sub">{{ users[r.author_id] }}</span>{% endif %}
+    </div>
+  </div>
+  <form class="rem-text" hx-post="/api/remarks/{{ r.id }}"
+        hx-target="#rem-{{ r.id }}" hx-swap="outerHTML">
+    <textarea name="text" rows="3"
+              hx-post="/api/remarks/{{ r.id }}" hx-trigger="change"
+              hx-target="#rem-{{ r.id }}" hx-swap="outerHTML">{{ r.text }}</textarea>
+  </form>
+  <div class="rem-foot">
+    <div class="sub mono">{{ r.evidence }}</div>
+    <div class="rem-act">
+      {% if r.status != 'sent' %}
+        <button class="link" hx-post="/api/remarks/{{ r.id }}"
+                hx-vals='{"status": "sent"}' hx-target="#rem-{{ r.id }}"
+                hx-swap="outerHTML">передано бюро</button>
+      {% else %}
+        <button class="link" hx-post="/api/remarks/{{ r.id }}"
+                hx-vals='{"status": "open"}' hx-target="#rem-{{ r.id }}"
+                hx-swap="outerHTML">вернуть в работу</button>
+      {% endif %}
+      {% if r.status != 'dismissed' %}
+        <button class="link" hx-post="/api/remarks/{{ r.id }}"
+                hx-vals='{"status": "dismissed"}' hx-target="#rem-{{ r.id }}"
+                hx-swap="outerHTML">снять</button>
+      {% else %}
+        <button class="link" hx-post="/api/remarks/{{ r.id }}"
+                hx-vals='{"status": "open"}' hx-target="#rem-{{ r.id }}"
+                hx-swap="outerHTML">вернуть</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

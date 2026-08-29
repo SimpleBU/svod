@@ -28,13 +28,7 @@
     <h2>Расхождения</h2>
     {% if psp.findings %}
       <div class="finds">
-      {% for f in psp.findings %}
-        <div class="find lvl-{{ f.level_class }}">
-          <i class="dot"></i>
-          <div class="find-text">{{ f.text }}</div>
-          {% if f.sheets %}<div class="find-sheet mono">{{ 'лист' if f.sheets|length == 1 else 'листы' }} {{ f.sheets|join(', ') }}</div>{% endif %}
-        </div>
-      {% endfor %}
+      {% for f in psp.findings %}{% include '_finding.html' %}{% endfor %}
       </div>
     {% else %}
       <div class="sub">Расхождений в составе не найдено.</div>

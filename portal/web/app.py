@@ -23,12 +23,12 @@ from agent.api import KIND_LABELS, KIND_ORDER
 from .. import auth
 from .. import checkplan as plan_service
 from .. import config, models, nomenclature, passport as passport_service
-from .. import match as match_service
+from .. import match as match_service, remarks as remark_service
 from ..db import SessionLocal, upgrade_schema
 from ..exporting import passport_workbook_bytes, workbook_bytes
 from ..flags import readiness, document_flags
-from ..models import (CheckItem, CheckPlan, Document, Org, Project, Run,
-                      Submission, Symbol, User)
+from ..models import (CheckItem, CheckPlan, Document, MatchItem, Org, Project,
+                      Remark, Run, Submission, Symbol, User)
 from ..naming import parse_filename
 from ..queue import enqueue_intake, enqueue_match
 from ..storage import get_storage, object_key
@@ -330,6 +330,16 @@ def _plan_ctx(s, doc, q='', flt=''):
             'frozen': plan.status == models.FROZEN}
 
 
+def _remarks_ctx(s, doc):
+    rows = remark_service.items(s, doc.id)
+    return {'doc': doc, 'rows': rows,
+            'stats': remark_service.stats(rows),
+            'labels': remark_service.STATUS_LABELS,
+            'orphaned': {r.id for r in remark_service.orphaned(s, doc.id)},
+            'users': {u.id: (u.name or u.email)
+                      for u in s.scalars(select(User)).all()}}
+
+
 @app.get('/projects/{project_id}', response_class=HTMLResponse)
 def project_page(request: Request, project_id: int, tab: str = 'composition',
                  q: str = '', section: str = '', flagged: int = 0,
@@ -341,7 +351,7 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
         ctx['composition'] = _composition(s, p, sub)
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
-        elif tab in ('passport', 'checkplan', 'match'):
+        elif tab in ('passport', 'checkplan', 'match', 'remarks'):
             picked, docs = _pick_doc(sub, doc)
             ctx['docs'] = docs
             ctx['doc'] = picked
@@ -350,6 +360,8 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
             elif picked is not None and tab == 'match':
                 ctx['match'] = match_service.context(s, picked, q,
                                                      flt if flt else None)
+            elif picked is not None and tab == 'remarks':
+                ctx['remarks'] = _remarks_ctx(s, picked)
             elif picked is not None:
                 ctx['plan'] = _plan_ctx(s, picked, q, flt)
         return templates.TemplateResponse(request, 'project.html', ctx)
@@ -399,6 +411,62 @@ def match_start(request: Request, document_id: int):
     enqueue_match(document_id)
     return RedirectResponse(f'/projects/{project_id}?tab=match&doc={document_id}',
                             status_code=303)
+
+
+# ------------------------------------------------------------- замечания
+
+@app.post('/api/match-items/{item_id}/remark', response_class=HTMLResponse)
+def match_remark(request: Request, item_id: int, status: str = Form(...)):
+    """Решение эксперта по строке сверки. В ответе — только эта строка."""
+    if status not in (models.OPEN, models.DISMISSED, models.SENT):
+        raise HTTPException(400, 'неизвестное решение')
+    with db() as s:
+        item = s.get(MatchItem, item_id)
+        if item is None:
+            raise HTTPException(404, 'строка сверки не найдена')
+        doc = s.get(Document, item.document_id)
+        item.remark = remark_service.from_match(s, doc, item, status, _uid(request))
+        item.level_class = match_service.LEVELS.get(item.level, '')
+        return templates.TemplateResponse(request, '_match_row.html',
+                                          {'request': request, 'i': item})
+
+
+@app.post('/api/documents/{document_id}/passport-remark', response_class=HTMLResponse)
+def passport_remark(request: Request, document_id: int, index: int = Form(...),
+                    status: str = Form(...)):
+    """Решение эксперта по расхождению паспорта. В ответе — только блок."""
+    if status not in (models.OPEN, models.DISMISSED, models.SENT):
+        raise HTTPException(400, 'неизвестное решение')
+    with db() as s:
+        doc = s.get(Document, document_id)
+        if doc is None:
+            raise HTTPException(404, 'том не найден')
+        findings = doc.findings or []
+        if not 0 <= index < len(findings):
+            raise HTTPException(404, 'расхождение не найдено')
+        f = findings[index]
+        remark = remark_service.from_passport(s, doc, f, status, _uid(request))
+        ctx = dict(f, index=index, remark=remark,
+                   level_class=passport_service.LEVELS.get(f.get('level'), ''))
+        return templates.TemplateResponse(request, '_finding.html',
+                                          {'request': request, 'f': ctx, 'doc': doc})
+
+
+@app.post('/api/remarks/{remark_id}', response_class=HTMLResponse)
+def remark_edit(request: Request, remark_id: int, text: str = Form(None),
+                status: str = Form(None)):
+    """Правка формулировки или статуса замечания."""
+    if status is not None and status not in (models.OPEN, models.DISMISSED,
+                                             models.SENT):
+        raise HTTPException(400, 'неизвестный статус')
+    with db() as s:
+        remark = s.get(Remark, remark_id)
+        if remark is None:
+            raise HTTPException(404, 'замечание не найдено')
+        remark_service.edit(s, remark, text, status, _uid(request))
+        users = {u.id: (u.name or u.email) for u in s.scalars(select(User)).all()}
+        return templates.TemplateResponse(request, '_remark.html', {
+            'request': request, 'r': remark, 'users': users})
 
 
 def _row_response(request, s, project, item):
@@ -573,7 +641,8 @@ def project_passport_xlsx(project_id: int, doc: int = 0):
         plan = _plan_ctx(s, picked)
         users = {u.id: (u.name or u.email) for u in s.scalars(select(User)).all()}
         data = passport_workbook_bytes(p, sub, picked, psp, plan, users,
-                                       match_service.items(s, picked.id))
+                                       match_service.items(s, picked.id),
+                                       remark_service.items(s, picked.id))
         stem = picked.cipher or picked.filename.rsplit('.', 1)[0]
     return _xlsx(data, f'{stem}_паспорт.xlsx')
 

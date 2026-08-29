@@ -41,6 +41,8 @@ FINDING_TITLES = {
 REF_KINDS = {'referenced': 'ссылочный', 'attached': 'прилагаемый',
              'volume': 'комплект раздела'}
 DECISIONS = {models.AUTO: '', models.TAKE: 'взято', models.SKIP: 'снято'}
+REMARK_STATUS = {models.OPEN: 'в работе', models.SENT: 'передано бюро',
+                 models.DISMISSED: 'снято'}
 
 
 def _sheet(wb, title, headers, widths):
@@ -150,7 +152,7 @@ def _text(ws, row, col, value, italic=False, bold=False, size=10):
 
 
 def passport_workbook_bytes(project, submission, doc, psp, plan, users=None,
-                            match_rows=()):
+                            match_rows=(), remarks=()):
     """Паспорт тома и план проверки одной книгой.
 
     Экран показывает то же самое, но в переписке с бюро нужен файл, который
@@ -200,6 +202,13 @@ def passport_workbook_bytes(project, submission, doc, psp, plan, users=None,
             ('— под вопросом', ms.get('doubts', 0)),
             ('— сошлось', ms.get('matched', 0)),
             ('— позиций машине не проверить', ms.get('uncheckable', 0)),
+        ]
+    if remarks:
+        lines += [
+            ('Замечаний', len(remarks)),
+            ('— в работе', sum(1 for r in remarks if r.status == 'open')),
+            ('— передано бюро', sum(1 for r in remarks if r.status == 'sent')),
+            ('— снято экспертом', sum(1 for r in remarks if r.status == 'dismissed')),
         ]
     lines += [('Выгружено', datetime.now().strftime('%d.%m.%Y %H:%M'))]
     for i, (k, v) in enumerate(lines, 1):
@@ -291,6 +300,22 @@ def passport_workbook_bytes(project, submission, doc, psp, plan, users=None,
                   users.get(i.decided_by, ''), i.comment],
              wrap=(6, 10, 14),
              fill=LEVEL_FILL['g'] if i.included else None, fill_col=1)
+
+    # --- замечания идут первым листом после сводки: это то, что уходит бюро
+    if remarks:
+        ws = _sheet(wb, 'Замечания',
+                    ['№', 'Статус', 'Уровень', 'Откуда', 'Предмет',
+                     'Формулировка', 'Что нашла машина', 'Листы', 'Эксперт'],
+                    [6, 16, 14, 12, 30, 90, 60, 20, 22])
+        for n, r in enumerate(remarks, 1):
+            level, word = FINDING_LEVELS.get(r.level, ('', ''))
+            _row(ws, [n, REMARK_STATUS.get(r.status, r.status), word,
+                      'сверка' if r.source == 'match' else 'паспорт',
+                      r.subject, r.text, r.evidence,
+                      ', '.join(str(p) for p in (r.sheets or [])),
+                      users.get(r.author_id, '')],
+                 wrap=(6, 7), fill=LEVEL_FILL.get(level), fill_col=3)
+        wb.move_sheet('Замечания', offset=-(len(wb.sheetnames) - 2))
 
     # --- сверка с чертежами: лист появляется, только если она запускалась
     if match_rows:
