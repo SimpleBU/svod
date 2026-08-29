@@ -29,6 +29,15 @@ envVarGroups:
         sync: false
       - key: S3_PREFIX
         value: documents
+      # подпись куки сессии: генерирует площадка, в репозиторий не попадает
+      - key: SECRET_KEY
+        generateValue: true
+      # первый пользователь заводится один раз при первом старте веб-сервиса;
+      # пароль вводится в интерфейсе Render и нигде больше не хранится
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
 
 services:
   - type: web

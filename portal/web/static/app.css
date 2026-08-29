@@ -256,3 +256,17 @@ input.search:focus { border-color: var(--accent); }
 .note { margin-top: 3px; color: var(--fg-3); }
 .flash { padding: 8px 10px; margin: 8px 0; background: var(--row);
   border-left: 2px solid var(--accent); font-size: 12px; }
+
+
+/* ------------------------------------------------------------------- вход */
+.login { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); }
+.login-card { width: 330px; display: flex; flex-direction: column; gap: 14px;
+  padding: 26px 26px 22px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 5px; }
+.login-card .brand { padding: 0 0 14px; }
+.login-card label { display: flex; flex-direction: column; gap: 5px; }
+.login-card .search { width: 100%; }
+.login-err { color: var(--r-fg); font-size: 12px; }
+.side-foot .logout { display: block; margin-top: 6px; color: var(--fg-5); }
+.side-foot .logout:hover { color: var(--fg-2); }

@@ -95,7 +95,8 @@ def _remember(session, project_id, item, submission_id=None):
     rule.comment = item.comment
 
 
-def bulk(session, rows, value, overwrite=False, project_id=None, submission_id=None):
+def bulk(session, rows, value, overwrite=False, project_id=None,
+         submission_id=None, user_id=None):
     """Массовое действие. -> (изменено, оставлено как есть).
 
     Строки с решением эксперта не трогаются, пока он явно не попросил
@@ -110,6 +111,7 @@ def bulk(session, rows, value, overwrite=False, project_id=None, submission_id=N
             continue
         item.decision = value
         item.decided_at = _now() if value != models.AUTO else None
+        item.decided_by = user_id
         if project_id:
             _remember(session, project_id, item, submission_id)
         changed += 1

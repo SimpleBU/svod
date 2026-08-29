@@ -16,9 +16,11 @@ from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from starlette.middleware.sessions import SessionMiddleware
 
 from agent.api import KIND_LABELS, KIND_ORDER
 
+from .. import auth
 from .. import checkplan as plan_service
 from .. import config, models, nomenclature, passport as passport_service
 from ..db import SessionLocal, upgrade_schema
@@ -47,7 +49,43 @@ STATE_LABELS = {
 
 app = FastAPI(title=config.APP_NAME, docs_url=None, redoc_url=None)
 app.mount('/static', StaticFiles(directory=BASE / 'static'), name='static')
-templates = Jinja2Templates(directory=str(BASE / 'templates'))
+
+
+@app.middleware('http')
+async def require_login(request: Request, call_next):
+    """Портал закрыт целиком, кроме формы входа и статики.
+
+    Проверка стоит здесь, а не в зависимостях каждого роута: забыть повесить
+    зависимость на новый роут легко, а тихо открытый наружу портал с чужой
+    документацией — слишком дорогая ошибка.
+    """
+    if auth.is_public(request.url.path) or request.session.get(auth.SESSION_KEY):
+        return await call_next(request)
+    if request.url.path.startswith('/api/'):
+        return JSONResponse({'detail': 'нужно войти'}, status_code=401)
+    nxt = request.url.path
+    if request.url.query:
+        nxt += '?' + request.url.query
+    return RedirectResponse('/login?next=' + quote(nxt, safe=''), status_code=303)
+
+
+# Порядок важен: Starlette разворачивает промежуточные слои в обратном порядке
+# добавления, поэтому сессия подключается ПОСЛЕ проверки входа — тогда она
+# оказывается снаружи и request.session уже доступен внутри неё.
+app.add_middleware(SessionMiddleware, secret_key=auth.secret_key(),
+                   session_cookie='svod_session', max_age=auth.SESSION_MAX_AGE,
+                   same_site='lax', https_only=config.HTTPS_ONLY)
+def _user_context(request: Request):
+    """Кто вошёл — нужно каждому шаблону, поэтому кладём один раз здесь,
+    а не дописываем в контекст каждого ответа: забыть легко."""
+    if not request.session.get(auth.SESSION_KEY):
+        return {'user': None}
+    with SessionLocal() as s:
+        return {'user': auth.current_user(request, s)}
+
+
+templates = Jinja2Templates(directory=str(BASE / 'templates'),
+                            context_processors=[_user_context])
 
 
 def _num(v):
@@ -97,10 +135,16 @@ def _startup():
         if not s.scalar(select(Org).limit(1)):
             s.add(Org(name=config.ORG_NAME))
             s.commit()
+        auth.ensure_admin(s)
 
 
 def db():
     return SessionLocal()
+
+
+def _uid(request: Request):
+    """Кто принимает решение. Нужен этапу 3: у замечания должен быть автор."""
+    return request.session.get(auth.SESSION_KEY)
 
 
 def current_org(s):
@@ -110,6 +154,39 @@ def current_org(s):
         s.add(org)
         s.commit()
     return org
+
+
+# ------------------------------------------------------------------------ вход
+
+@app.get('/login', response_class=HTMLResponse)
+def login_form(request: Request, next: str = '/'):
+    if request.session.get(auth.SESSION_KEY):
+        return RedirectResponse(next or '/', status_code=303)
+    return templates.TemplateResponse(request, 'login.html',
+                                      {'request': request, 'next': next})
+
+
+@app.post('/login', response_class=HTMLResponse)
+def login_submit(request: Request, email: str = Form(''), password: str = Form(''),
+                 next: str = Form('/')):
+    with db() as s:
+        user = auth.authenticate(s, email, password)
+        if user is None:
+            log.warning('неудачная попытка входа: %s', (email or '')[:80])
+            return templates.TemplateResponse(
+                request, 'login.html',
+                {'request': request, 'next': next, 'email': email,
+                 'error': 'Неверная почта или пароль'}, status_code=401)
+        auth.login(request, user)
+        log.info('вход: %s', user.email)
+    target = next if next.startswith('/') and not next.startswith('//') else '/'
+    return RedirectResponse(target, status_code=303)
+
+
+@app.get('/logout')
+def logout(request: Request):
+    auth.logout(request)
+    return RedirectResponse('/login', status_code=303)
 
 
 # --------------------------------------------------------------- список объектов
@@ -323,6 +400,7 @@ def item_decision(request: Request, item_id: int, value: str = Form(...)):
             raise HTTPException(409, 'план зафиксирован: создайте новую версию')
         doc = s.get(Document, plan.document_id)
         project_id, submission_id = plan_service.project_of(s, doc)
+        item.decided_by = _uid(request)
         plan_service.set_decision(s, item, value, project_id, submission_id)
         return _row_response(request, s, s.get(Project, project_id), item)
 
@@ -337,6 +415,7 @@ def item_comment(request: Request, item_id: int, comment: str = Form('')):
         if plan.status == models.FROZEN:
             raise HTTPException(409, 'план зафиксирован')
         item.comment = comment.strip()[:2000]
+        item.decided_by = _uid(request)
         doc = s.get(Document, plan.document_id)
         project_id, submission_id = plan_service.project_of(s, doc)
         plan_service.set_decision(s, item, item.decision, project_id, submission_id)
@@ -359,7 +438,7 @@ def plan_bulk(request: Request, plan_id: int, value: str = Form(...),
         target = plan_service.filtered(rows, q, flt) if scope == 'filtered' else [
             r for r in rows if r.cls == scope] if scope in ('A', 'B', 'C') else rows
         changed, kept = plan_service.bulk(s, target, value, bool(overwrite),
-                                          project_id, submission_id)
+                                          project_id, submission_id, _uid(request))
         log.info('план %s: массовое действие %s, изменено %s, оставлено %s',
                  plan.id, value, changed, kept)
         ctx = _plan_ctx(s, doc, q, flt)
@@ -377,6 +456,7 @@ def plan_freeze(plan_id: int):
             raise HTTPException(404, 'план не найден')
         doc = s.get(Document, plan.document_id)
         project_id, _ = plan_service.project_of(s, doc)
+        plan.frozen_by = _uid(request)
         plan_service.freeze(s, plan, plan_service.items(s, plan.id))
         return RedirectResponse(
             f'/projects/{project_id}?tab=checkplan&doc={doc.id}', status_code=303)

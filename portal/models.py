@@ -42,6 +42,29 @@ class Org(Base, TimestampMixin):
     limits: Mapped[dict] = mapped_column(Json, default=dict)
 
 
+class User(Base, TimestampMixin):
+    """Эксперт, который входит в портал.
+
+    Пароль лежит хешем PBKDF2 (см. portal/auth.py). Роль пока справочная:
+    прав в портале ровно две штуки — войти и не войти, — но отделять
+    администратора от эксперта дешевле сразу, чем дописывать потом.
+    """
+    __tablename__ = 'app_user'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey('org.id', ondelete='CASCADE'),
+                                               index=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), default='')
+    password_hash: Mapped[str] = mapped_column(String(300), default='')
+    role: Mapped[str] = mapped_column(String(20), default='expert')
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def label(self):
+        return self.name or self.email
+
+
 class Project(Base, TimestampMixin):
     __tablename__ = 'project'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -237,6 +260,8 @@ class CheckPlan(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(20), default=DRAFT, index=True)
     frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    frozen_by: Mapped[int | None] = mapped_column(
+        ForeignKey('app_user.id', ondelete='SET NULL'))
     stats: Mapped[dict] = mapped_column(Json, default=dict)
 
 
@@ -268,6 +293,9 @@ class CheckItem(Base):
     evidence: Mapped[list] = mapped_column(Json, default=list)
     decision: Mapped[str] = mapped_column(String(10), default=AUTO)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # кто отобрал позицию: на этапе 3 у замечания должен быть автор
+    decided_by: Mapped[int | None] = mapped_column(
+        ForeignKey('app_user.id', ondelete='SET NULL'))
     comment: Mapped[str] = mapped_column(Text, default='')
 
     @property

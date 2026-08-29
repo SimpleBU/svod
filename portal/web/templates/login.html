@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход · {{ APP_NAME }}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="login">
+  <form class="login-card" method="post" action="/login">
+    <div class="brand">
+      <b>{{ APP_NAME }}</b>
+      <div class="upper">приёмка документации</div>
+    </div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>
+      <span class="upper">Почта</span>
+      <input class="search" type="email" name="email" value="{{ email or '' }}"
+             autocomplete="username" autofocus required>
+    </label>
+    <label>
+      <span class="upper">Пароль</span>
+      <input class="search" type="password" name="password"
+             autocomplete="current-password" required>
+    </label>
+    {% if error %}<div class="login-err">{{ error }}</div>{% endif %}
+    <button class="btn btn-primary" type="submit">Войти</button>
+    <div class="sub">Доступ выдаёт администратор организации.</div>
+  </form>
+</div>
+</body>
+</html>

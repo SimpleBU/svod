@@ -45,5 +45,7 @@ MAX_UPLOAD_MB = int(os.getenv('MAX_UPLOAD_MB', '80'))
 ORG_NAME = os.getenv('ORG_NAME', 'Внутренняя экспертиза')
 APP_NAME = os.getenv('APP_NAME', 'СВОД')
 RUN_MIGRATIONS = _b('RUN_MIGRATIONS', True)
+# кука сессии только по https: на Render так и есть, на ноутбуке — нет
+HTTPS_ONLY = _b('HTTPS_ONLY', bool(os.getenv('RENDER')))
 # разбор в отдельном потоке того же процесса — только для локального запуска
 INLINE_WORKER = _b('INLINE_WORKER', not REDIS_URL)

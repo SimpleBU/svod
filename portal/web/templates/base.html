@@ -30,7 +30,12 @@
     </nav>
     <div class="side-foot">
       <div>{{ ORG_NAME }}</div>
-      <div class="sub">пилот</div>
+      {% if user %}
+        <div class="sub">{{ user.label }}</div>
+        <a class="sub logout" href="/logout">Выйти</a>
+      {% else %}
+        <div class="sub">пилот</div>
+      {% endif %}
     </div>
   </aside>
   <main class="main">{% block main %}{% endblock %}</main>
