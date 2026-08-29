@@ -1,0 +1,7 @@
+<div id="planstat" class="row-between" {% if oob %}hx-swap-oob="true"{% endif %}>
+  <div class="sub">
+    К проверке отобрано <span class="num" style="color:var(--fg)">{{ stats.included }}</span>
+    из <span class="num">{{ stats.total }}</span> позиций — {{ stats.percent }} %
+    <span class="sub"> · {{ stats.proposed }} предложено машиной · {{ stats.taken }} добавлено вручную · {{ stats.skipped }} снято</span>
+  </div>
+</div>

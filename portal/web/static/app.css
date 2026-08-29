@@ -154,3 +154,105 @@ input.search:focus { border-color: var(--accent); }
 .form input { padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 3px; color: var(--fg); outline: none; }
 .form input:focus { border-color: var(--accent); }
 .disclaimer { padding: 10px 28px 24px; font-size: 11px; color: var(--fg-6); }
+
+
+/* ---------------------------------------------- паспорт тома и план проверки */
+/* Оранжевый нагружен ровно одним смыслом — «затронуто изменением». Светофор
+   готовности (g/y/r) остаётся отдельной системой и с ним не смешивается. */
+:root { --changed: #d2590f; --changed-bg: rgba(210,89,15,.10); }
+
+.docbar { display: flex; gap: 2px; padding: 10px 28px 0; flex-wrap: wrap; }
+.docbar a { padding: 6px 10px; border-radius: 3px; font-family: var(--mono);
+  font-size: 12px; color: var(--fg-4); }
+.docbar a:hover { background: var(--hover); color: var(--fg-2); }
+.docbar a.active { background: var(--row); color: var(--fg); }
+
+.psp { display: flex; flex-direction: column; gap: 26px; padding-bottom: 60px; }
+.psp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.psp-code { font-size: 16px; }
+.psp-nums { display: flex; gap: 26px; }
+.psp-nums div { display: flex; flex-direction: column; gap: 2px; text-align: right; }
+.psp-nums b { font-family: var(--mono); font-size: 17px; font-weight: 500; }
+
+.block { display: flex; flex-direction: column; gap: 10px; }
+.block h2 { font-size: 12px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--fg-4); margin: 0;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+
+.finds { display: flex; flex-direction: column; gap: 1px; }
+.find { display: flex; align-items: baseline; gap: 10px; padding: 9px 10px;
+  background: var(--panel); border-left: 2px solid var(--fg-7); border-radius: 2px; }
+.find .dot { background: var(--fg-7); position: relative; top: -1px; }
+.find.lvl-r { border-left-color: var(--r); } .find.lvl-r .dot { background: var(--r); }
+.find.lvl-y { border-left-color: var(--y); } .find.lvl-y .dot { background: var(--y); }
+.find-text { flex: 1; }
+.find-sheet { color: var(--fg-5); font-size: 11px; white-space: nowrap; }
+.passed { color: var(--fg-5); font-size: 12px; }
+.passed summary { cursor: pointer; padding: 6px 0; }
+
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { text-align: left; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--fg-5); font-weight: 500;
+  padding: 7px 10px; border-bottom: 1px solid var(--line-2);
+  position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.tbl td { padding: 8px 10px; border-bottom: 1px solid var(--line);
+  vertical-align: top; }
+.tbl tbody tr:hover { background: var(--hover); }
+.tbl-wrap { overflow: auto; }
+.tbl-wrap.short { max-height: 320px; }
+.prewrap { white-space: pre-wrap; }
+.row-missing td { color: var(--r-fg); }
+
+.tag { display: inline-block; padding: 1px 6px; border-radius: 2px; font-size: 11px;
+  border: 1px solid var(--line-2); color: var(--fg-4); }
+.tag-g { border-color: rgba(63,156,109,.4); color: var(--g-fg); }
+.tag-y { border-color: rgba(201,147,51,.4); color: var(--y-fg); }
+.tag-r { border-color: rgba(200,84,76,.4); color: var(--r-fg); }
+
+.norms { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 1px; }
+.norm { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; }
+.norm .norm-title { color: var(--fg-4); flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.norm.ctx { opacity: .5; }
+
+.ugo { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.ugo-cell { display: flex; align-items: center; gap: 10px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+.ugo-cell.unused { opacity: .55; }
+.ugo-img { width: 78px; height: 44px; flex: 0 0 78px; background: #fff;
+  border-radius: 2px; display: flex; align-items: center; justify-content: center; }
+.ugo-img img { max-width: 74px; max-height: 40px; object-fit: contain; }
+.ugo-img .mono { color: #333; font-size: 11px; }
+.ugo-name { font-size: 11px; color: var(--fg-3); line-height: 1.35; }
+
+/* --- план проверки */
+.ci-tbl td { padding: 7px 10px; }
+.ci.on { background: var(--row); }
+.ci.skipped { opacity: .5; }
+.chk { width: 15px; height: 15px; border: 1px solid var(--fg-7); border-radius: 3px;
+  background: none; cursor: pointer; padding: 0; display: block; }
+.chk:hover { border-color: var(--fg-3); }
+.chk.on { background: var(--accent); border-color: var(--accent); position: relative; }
+.chk.on::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px;
+  height: 8px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(42deg); }
+.cls { display: inline-block; width: 17px; height: 17px; line-height: 16px;
+  text-align: center; font-family: var(--mono); font-size: 11px; border-radius: 2px; }
+/* классы обязательно через .cls: те же имена висят на самой строке,
+   и без этого «A» красил всю строку в цвет фона */
+.cls.cls-a { background: var(--fg); color: var(--bg); }
+.cls.cls-b { border: 1px solid var(--fg-6); color: var(--fg-3); }
+.cls.cls-c { color: var(--fg-6); }
+.ci-name { max-width: 340px; }
+.ci-mark { max-width: 200px; font-size: 12px; }
+.ci-why { font-size: 11px; }
+.origin { font-size: 10px; color: var(--fg-5); margin-top: 2px; }
+.why { display: inline-block; margin: 0 6px 2px 0; color: var(--fg-4); }
+.why::after { content: ' ·'; color: var(--fg-7); }
+.why:last-of-type::after { content: ''; }
+.why-changed { color: var(--changed); border-bottom: 1px solid var(--changed-bg); }
+.why-minus { color: var(--fg-6); }
+.quote { margin-top: 3px; color: var(--fg-4); border-left: 2px solid var(--changed);
+  padding-left: 7px; line-height: 1.4; }
+.note { margin-top: 3px; color: var(--fg-3); }
+.flash { padding: 8px 10px; margin: 8px 0; background: var(--row);
+  border-left: 2px solid var(--accent); font-size: 12px; }

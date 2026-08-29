@@ -1,0 +1,21 @@
+<div id="plantable">
+  {% set stats = plan.stats %}
+  {% include '_checkplan_counter.html' %}
+  {% if plan.flash %}<div class="flash">{{ plan.flash }}</div>{% endif %}
+  <div class="tbl-wrap">
+    <table class="tbl ci-tbl">
+      <thead>
+        <tr>
+          <th style="width:34px"></th><th style="width:34px">Кл</th><th style="width:46px">Поз.</th>
+          <th>Наименование</th><th style="width:190px">Марка</th>
+          <th style="width:80px">Кол-во</th><th style="width:46px">Ед.</th>
+          <th style="width:300px">Почему важно</th><th style="width:180px">Чем проверяется</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in plan.rows %}{% include '_checkplan_row.html' %}{% endfor %}
+      </tbody>
+    </table>
+    {% if not plan.rows %}<div class="empty">По этому фильтру позиций нет.</div>{% endif %}
+  </div>
+</div>

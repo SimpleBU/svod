@@ -1,0 +1,26 @@
+<tr id="ci{{ i.id }}" class="ci cls-{{ i.cls|lower }} {{ 'on' if i.included }} {{ 'skipped' if i.decision == 'skip' }}">
+  <td class="ci-check">
+    <form hx-post="/api/check-items/{{ i.id }}/decision" hx-target="#ci{{ i.id }}"
+          hx-swap="outerHTML" {{ 'style=opacity:.5' if frozen }}>
+      <input type="hidden" name="value" value="{{ 'skip' if i.included else 'take' }}">
+      <button type="submit" class="chk {{ 'on' if i.included }}" {{ 'disabled' if frozen }}
+              title="{{ 'снять с проверки' if i.included else 'взять в проверку' }}"></button>
+    </form>
+  </td>
+  <td><span class="cls cls-{{ i.cls|lower }}">{{ i.cls }}</span></td>
+  <td class="mono sub">{{ i.pos }}</td>
+  <td class="ci-name">
+    <div class="wrap2">{{ i.name }}</div>
+    {% if i.origin %}<div class="origin">{{ i.origin }}</div>{% endif %}
+  </td>
+  <td class="mono ci-mark"><div class="wrap2">{{ i.mark }}</div></td>
+  <td class="num">{{ i.qty|num }}</td>
+  <td class="sub">{{ i.unit }}</td>
+  <td class="ci-why">
+    {% for r in i.reasons %}<span class="why {{ 'why-changed' if r.code == 'changed' }}{{ ' why-minus' if r.weight < 0 }}">{{ r.text }}</span>{% endfor %}
+    {% for e in i.evidence %}{% if e.kind == 'revision' %}<div class="quote">«{{ e.text }}»</div>{% endif %}{% endfor %}
+    {% if i.comment %}<div class="note">{{ i.comment }}</div>{% endif %}
+  </td>
+  <td class="sub">{{ i.verifiable_by|join(', ') }}</td>
+</tr>
+{% if oob %}{% include '_checkplan_counter.html' %}{% endif %}

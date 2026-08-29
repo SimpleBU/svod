@@ -10,3 +10,9 @@ Example/
 .DS_Store
 .idea/
 .vscode/
+
+# локальный прогон и артефакты сессий
+*.tar.gz
+shot_*.png
+serve.log
+var_run.log

@@ -2,8 +2,13 @@
 """Задача воркера: разобрать том.
 
 Скачать из хранилища во временный файл, разобрать фасадом agent.api,
-записать листы и спецификацию, обновлять прогресс. Временный файл живёт
-только внутри задачи: файловая система Render эфемерна.
+записать листы, спецификацию, паспорт тома и план проверки, обновлять
+прогресс. Временный файл живёт только внутри задачи: файловая система
+Render эфемерна.
+
+Решения эксперта в плане проверки переносятся между прогонами по ключу
+позиции, а не по id строки: при повторном разборе id меняются, позиция
+остаётся той же.
 """
 import logging
 import re
@@ -13,20 +18,24 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, insert
+from sqlalchemy import delete, insert, select
 
 from . import models
 from .db import SessionLocal
-from .models import Document, Run, Sheet, SpecItem
-from .storage import get_storage
+from .models import (CheckItem, CheckPlan, CheckRule, DeclaredSheet, DocRef,
+                     Document, NormRef, RevisionEntry, Run, Sheet, SpecItem,
+                     Submission, Symbol)
+from .storage import get_storage, symbol_key
 
 log = logging.getLogger(__name__)
 
 # вес стадий в общем прогрессе: классификация и спецификация — основное время
 STAGE_WEIGHTS = [
-    ('классификация листов', 0.0, 0.45),
-    ('разбор спецификации', 0.45, 0.40),
-    ('проверка готовности', 0.85, 0.15),
+    ('классификация листов', 0.0, 0.40),
+    ('разбор спецификации', 0.40, 0.35),
+    ('проверка готовности', 0.75, 0.10),
+    ('разбор общих данных', 0.85, 0.07),
+    ('условные обозначения', 0.92, 0.08),
 ]
 PROGRESS_EVERY = 1.0  # секунда: чаще писать в БД незачем
 
@@ -36,11 +45,9 @@ def _now():
 
 
 def _human(stage, done, total):
-    if stage == 'классификация листов':
-        return f'классификация листов, лист {done + 1} из {total}'
-    if stage == 'разбор спецификации':
-        return f'разбор спецификации, лист {done + 1} из {total}'
-    return f'проверка готовности, лист {done + 1} из {total}'
+    if stage == 'условные обозначения':
+        return f'условные обозначения, символ {done} из {total}'
+    return f'{stage}, лист {min(done + 1, total)} из {total}'
 
 
 def _percent(stage, done, total):
@@ -107,9 +114,24 @@ def run_intake(document_id):
                  'expanded_range': r.expanded_range}
                 for r in result.spec])
 
+        # --- паспорт тома: что бюро объявило и что с этим не так
+        from agent.api import passport, checkplan
+        # к шифрам подачи добавляем шифры, встреченные внутри самого тома:
+        # спецификацию и кабельный журнал бюро часто подшивает в тот же файл,
+        # и «объявлен .СО — в подаче нет» было бы ложной тревогой
+        codes = _submission_codes(session, doc) + [s.code for s in result.sheets
+                                                   if s.code]
+        psp = passport(local, res=result, filename=doc.filename,
+                       submission_codes=codes, progress=progress)
+        _save_passport(session, doc, psp, codes)
+
+        # --- план проверки: новая версия с переносом решений эксперта
+        _save_checkplan(session, doc, result, checkplan(result, psp))
+
         doc.pages_total = result.pages_total
         doc.kind_counts = result.kind_counts
         doc.capabilities = result.capabilities.as_dict()
+        doc.findings = [f.as_dict() for f in psp.findings]
         doc.status = models.DONE
         doc.parsed_at = _now()
         run.status = models.DONE
@@ -118,8 +140,9 @@ def run_intake(document_id):
         run.finished_at = _now()
         run.stats = result.as_dict()
         session.commit()
-        log.info('том %s разобран: %s листов, %s позиций спецификации',
-                 doc.id, result.pages_total, len(result.spec))
+        log.info('том %s разобран: %s листов, %s позиций спецификации, '
+                 '%s расхождений', doc.id, result.pages_total, len(result.spec),
+                 len(psp.findings))
     except Exception as exc:  # noqa: BLE001 — сообщение уходит эксперту
         session.rollback()
         text = _explain(exc)
@@ -141,6 +164,173 @@ def run_intake(document_id):
         if tmpdir is not None:
             tmpdir.cleanup()
         session.close()
+
+
+# ------------------------------------------------------- паспорт и план
+
+def _flat(code):
+    """«ПР-01/24-3-СПСиА.СО(л. 1-3)» и «…СПСиА.СО» — один документ: хвост
+    в скобках указывает листы, а не другой шифр."""
+    code = re.sub(r'\([^)]*\)', ' ', code or '')
+    return re.sub(r'[\s\-–—_.()/]', '', code).upper()
+
+
+def _present(code, known):
+    """Только точное совпадение: шифр тома является началом шифров всех его
+    приложений, и сравнение «по началу» пропустило бы не сданный .АЛ1."""
+    return bool(code) and code in known
+
+
+def _submission_codes(session, doc):
+    """Шифры томов этой подачи — по ним проверяется «объявлено, но не сдано»."""
+    sub = session.get(Submission, doc.submission_id)
+    if sub is None:
+        return []
+    return [d.cipher or d.filename for d in sub.documents]
+
+
+def _save_passport(session, doc, psp, codes):
+    """Ведомости, нормативы, изменения и условные обозначения тома.
+
+    Всё это производно от файла и переписывается целиком: повторный разбор
+    не должен оставлять хвосты прошлого прогона.
+    """
+    for model in (DeclaredSheet, DocRef, NormRef, RevisionEntry):
+        session.execute(delete(model).where(model.document_id == doc.id))
+
+    if psp.sheets:
+        session.execute(insert(DeclaredSheet), [
+            {'document_id': doc.id, 'no': s.no, 'title': s.title,
+             'revisions': s.revisions, 'mark': (s.mark or '')[:20],
+             'src_page': s.src_page} for s in psp.sheets if s.no])
+
+    known = {_flat(c) for c in codes if c} - {''}
+    rows = [(DocRef, d, d.kind) for d in psp.refs] + [(DocRef, v, 'volume')
+                                                      for v in psp.volumes]
+    if rows:
+        session.execute(insert(DocRef), [
+            {'document_id': doc.id, 'kind': kind, 'code': d.code[:200],
+             'title': d.title, 'sheets_declared': d.sheets_declared,
+             'note': d.note_raw, 'present': _flat(d.code) in known,
+             'src_page': d.src_page} for _, d, kind in rows])
+
+    if psp.norms:
+        session.execute(insert(NormRef), [
+            {'document_id': doc.id, 'code': n.code[:120], 'title': n.title,
+             'status': n.status, 'replaced_by': (n.replaced_by or '')[:300],
+             'note': n.note, 'contextual': n.contextual, 'sources': n.sources}
+            for n in psp.norms])
+
+    if psp.revisions:
+        session.execute(insert(RevisionEntry), [
+            {'document_id': doc.id, 'number': e.number, 'sheets': e.sheets,
+             'content': e.content, 'doc_code': (e.doc_code or '')[:200],
+             'basis': e.basis, 'src_page': e.src_page} for e in psp.revisions])
+
+    _save_symbols(session, doc, psp)
+    session.commit()
+
+
+def _save_symbols(session, doc, psp):
+    """Картинки условных обозначений уезжают в то же хранилище, что и тома:
+    общего диска у веба и воркера на Render не бывает."""
+    session.execute(delete(Symbol).where(Symbol.document_id == doc.id))
+    if not psp.symbols:
+        return
+    images = {(im.page, im.name): im for im in psp.symbol_images}
+    storage = get_storage()
+    # «встречается в спецификации» считаем по маркам, а не по всему тексту:
+    # короткий код вроде «В1» иначе находится где угодно
+    flat_marks = [_flat(m) for m in session.scalars(
+        select(SpecItem.mark).where(SpecItem.document_id == doc.id)).all() if m]
+    rows = []
+    for i, s in enumerate(psp.symbols, 1):
+        im = images.get((s.page, s.name))
+        key = ''
+        if im is not None and im.png:
+            key = symbol_key(doc.id, i)
+            try:
+                storage.put_bytes(key, im.png, 'image/png')
+            except Exception:
+                log.exception('не удалось записать картинку УГО %s', key)
+                key = ''
+        code = _flat(s.code)
+        rows.append({'document_id': doc.id, 'name': s.name,
+                     'code': (s.code or '')[:60], 'page': s.page,
+                     'image_key': key,
+                     'width': getattr(im, 'width', 0) if im else 0,
+                     'height': getattr(im, 'height', 0) if im else 0,
+                     'used': bool(code) and any(code in m for m in flat_marks)})
+    session.execute(insert(Symbol), rows)
+
+
+def _save_checkplan(session, doc, result, rows):
+    """Новая версия плана проверки с переносом решений эксперта.
+
+    Решения хранятся по ключу позиции: сначала берём решение из прошлой
+    версии плана этого тома, затем — правило уровня объекта (оно приходит
+    с прошлой подачи). Ручная работа не должна пропадать от повторного
+    разбора.
+    """
+    prev = session.scalars(
+        select(CheckPlan).where(CheckPlan.document_id == doc.id)
+        .order_by(CheckPlan.version.desc())).first()
+    carried = {}
+    if prev is not None:
+        for it in session.scalars(select(CheckItem)
+                                  .where(CheckItem.plan_id == prev.id)).all():
+            if it.decision != models.AUTO or it.comment:
+                carried[it.key] = (it.decision, it.comment)
+
+    sub = session.get(Submission, doc.submission_id)
+    project_id = sub.project_id if sub else None
+    if project_id:
+        for rule in session.scalars(select(CheckRule)
+                                    .where(CheckRule.project_id == project_id)).all():
+            carried.setdefault(rule.key, (rule.decision, rule.comment))
+
+    plan = CheckPlan(org_id=doc.org_id, document_id=doc.id,
+                     version=(prev.version + 1 if prev else 1),
+                     status=models.DRAFT)
+    session.add(plan)
+    session.flush()
+
+    spec_ids = [r.id for r in session.scalars(
+        select(SpecItem).where(SpecItem.document_id == doc.id)
+        .order_by(SpecItem.id)).all()]
+    payload = []
+    for row in rows:
+        decision, comment = carried.get(row.key, (models.AUTO, ''))
+        payload.append({
+            'plan_id': plan.id,
+            'spec_item_id': spec_ids[row.index] if row.index < len(spec_ids) else None,
+            'key': row.key, 'source': 'spec', 'pos': row.pos[:40], 'name': row.name,
+            'mark': row.mark[:300], 'unit': row.unit[:20], 'qty': row.qty,
+            'page': row.page, 'score': row.score, 'cls': row.cls,
+            'reasons': [{'code': x.code, 'text': x.text, 'weight': x.weight}
+                        for x in row.reasons],
+            'verifiable_by': row.verifiable_by,
+            'evidence': [{'kind': e.kind, 'text': e.text} for e in row.evidence],
+            'decision': decision, 'comment': comment})
+    if payload:
+        session.execute(insert(CheckItem), payload)
+    plan.stats = _plan_stats(payload)
+    session.commit()
+    return plan
+
+
+def _plan_stats(payload):
+    by_cls = {'A': 0, 'B': 0, 'C': 0}
+    taken = skipped = 0
+    for it in payload:
+        by_cls[it['cls']] = by_cls.get(it['cls'], 0) + 1
+        if it['decision'] == models.TAKE:
+            taken += 1
+        elif it['decision'] == models.SKIP:
+            skipped += 1
+    included = by_cls['A'] + taken - skipped
+    return {'total': len(payload), 'proposed': by_cls['A'], 'by_class': by_cls,
+            'taken': taken, 'skipped': skipped, 'included': max(0, included)}
 
 
 def _explain(exc):

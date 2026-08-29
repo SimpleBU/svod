@@ -1,0 +1,62 @@
+{% if not doc %}
+  <div class="empty">Ни один том ещё не разобран. Загрузите PDF на вкладке «Состав комплекта».</div>
+{% elif not plan.plan %}
+  <div class="empty">План проверки по этому тому ещё не собран.</div>
+{% else %}
+<div class="docbar">
+  {% for d in docs %}
+    <a href="?tab=checkplan&doc={{ d.id }}" class="{{ 'active' if d.id == doc.id }}">{{ d.cipher or d.filename }}</a>
+  {% endfor %}
+</div>
+
+<!-- не form: внутри лежат формы массовых действий, вложенные формы недопустимы -->
+<div class="filters">
+  <div class="row-between">
+    <div class="sub">
+      План проверки №{{ plan.plan.version }}
+      {% if plan.frozen %}<span class="tag tag-g">зафиксирован</span>
+      {% else %}<span class="sub">черновик</span>{% endif %}
+    </div>
+    <div style="display:flex;gap:8px">
+      {% if not plan.frozen %}
+      <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
+        <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="A">
+        <button class="btn" type="submit">Взять все A</button>
+      </form>
+      <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
+        <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="filtered">
+        <input type="hidden" name="q" value="{{ plan.q }}"><input type="hidden" name="flt" value="{{ plan.flt }}">
+        <button class="btn" type="submit">Взять отфильтрованные</button>
+      </form>
+      <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
+        <input type="hidden" name="value" value="skip"><input type="hidden" name="scope" value="C">
+        <button class="btn" type="submit">Снять все C</button>
+      </form>
+      <form method="post" action="/api/check-plans/{{ plan.plan.id }}/freeze">
+        <button class="btn btn-primary" type="submit">Зафиксировать</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="line">
+    <input class="search" name="q" value="{{ plan.q }}" autocomplete="off"
+           placeholder="Поиск по марке или наименованию"
+           hx-get="/projects/{{ project.id }}/checkplan"
+           hx-trigger="input changed delay:300ms"
+           hx-target="#plantable" hx-swap="outerHTML"
+           hx-include="#planfilters input[type=hidden]">
+    <span id="planfilters" hidden>
+      <input type="hidden" name="doc" value="{{ doc.id }}">
+      <input type="hidden" name="flt" value="{{ plan.flt }}">
+    </span>
+    <div class="seg">
+      <a href="?tab=checkplan&doc={{ doc.id }}&q={{ plan.q }}" class="{{ 'active' if not plan.flt }}">все</a>
+      {% for key, f in plan.filters.items() %}
+        <a href="?tab=checkplan&doc={{ doc.id }}&q={{ plan.q }}&flt={{ key }}"
+           class="{{ 'active' if plan.flt == key }}">{{ f[0] }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% include '_checkplan_table.html' %}
+{% endif %}

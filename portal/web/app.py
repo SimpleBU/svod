@@ -19,11 +19,12 @@ from sqlalchemy import func, select
 
 from agent.api import KIND_LABELS, KIND_ORDER
 
-from .. import config, models, nomenclature
+from .. import checkplan as plan_service
+from .. import config, models, nomenclature, passport as passport_service
 from ..db import SessionLocal, upgrade_schema
 from ..exporting import workbook_bytes
 from ..flags import readiness, document_flags
-from ..models import Document, Org, Project, Run, Submission
+from ..models import CheckItem, CheckPlan, Document, Org, Project, Run, Submission, Symbol
 from ..naming import parse_filename
 from ..queue import enqueue_intake
 from ..storage import get_storage, object_key
@@ -216,17 +217,165 @@ def _composition(s, project, submission):
             'project': project, 'submission': submission}
 
 
+def _parsed_docs(sub):
+    """Тома, по которым уже есть что показывать."""
+    return [d for d in sub.documents if d.status == models.DONE]
+
+
+def _pick_doc(sub, doc_id=None):
+    docs = _parsed_docs(sub)
+    if not docs:
+        return None, []
+    if doc_id:
+        for d in docs:
+            if d.id == doc_id:
+                return d, docs
+    return docs[0], docs
+
+
+def _plan_ctx(s, doc, q='', flt=''):
+    plan = plan_service.current_plan(s, doc.id)
+    if plan is None:
+        return {'doc': doc, 'plan': None, 'rows': [], 'stats': {}, 'q': q, 'flt': flt}
+    rows = plan_service.items(s, plan.id)
+    return {'doc': doc, 'plan': plan, 'all_rows': rows,
+            'rows': plan_service.filtered(rows, q, flt)[:800],
+            'stats': plan_service.stats(rows),
+            'filters': plan_service.FILTERS, 'q': q, 'flt': flt,
+            'frozen': plan.status == models.FROZEN}
+
+
 @app.get('/projects/{project_id}', response_class=HTMLResponse)
 def project_page(request: Request, project_id: int, tab: str = 'composition',
-                 q: str = '', section: str = '', flagged: int = 0):
+                 q: str = '', section: str = '', flagged: int = 0,
+                 doc: int = 0, flt: str = ''):
     with db() as s:
         p, sub = _load(s, project_id)
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
-               'q': q, 'section': section, 'flagged': flagged}
+               'q': q, 'section': section, 'flagged': flagged, 'flt': flt}
         ctx['composition'] = _composition(s, p, sub)
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
+        elif tab in ('passport', 'checkplan'):
+            picked, docs = _pick_doc(sub, doc)
+            ctx['docs'] = docs
+            ctx['doc'] = picked
+            if picked is not None and tab == 'passport':
+                ctx['psp'] = passport_service.context(s, picked)
+            elif picked is not None:
+                ctx['plan'] = _plan_ctx(s, picked, q, flt)
         return templates.TemplateResponse(request, 'project.html', ctx)
+
+
+# ------------------------------------------------------- паспорт и план проверки
+
+@app.get('/projects/{project_id}/checkplan', response_class=HTMLResponse)
+def checkplan_rows(request: Request, project_id: int, doc: int = 0,
+                   q: str = '', flt: str = ''):
+    """Перерисовка таблицы при фильтрах и поиске."""
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        if picked is None:
+            raise HTTPException(404, 'том не разобран')
+        return templates.TemplateResponse(request, '_checkplan_table.html', {
+            'request': request, 'project': p, 'plan': _plan_ctx(s, picked, q, flt)})
+
+
+def _row_response(request, s, project, item):
+    """Строка плюс счётчик через out-of-band: галочка и число над таблицей
+    не должны расходиться."""
+    rows = plan_service.items(s, item.plan_id)
+    return templates.TemplateResponse(request, '_checkplan_row.html', {
+        'request': request, 'project': project, 'i': item,
+        'stats': plan_service.stats(rows), 'oob': True,
+        'frozen': s.get(CheckPlan, item.plan_id).status == models.FROZEN})
+
+
+@app.post('/api/check-items/{item_id}/decision', response_class=HTMLResponse)
+def item_decision(request: Request, item_id: int, value: str = Form(...)):
+    with db() as s:
+        item = s.get(CheckItem, item_id)
+        if item is None:
+            raise HTTPException(404, 'позиция не найдена')
+        plan = s.get(CheckPlan, item.plan_id)
+        if plan.status == models.FROZEN:
+            raise HTTPException(409, 'план зафиксирован: создайте новую версию')
+        doc = s.get(Document, plan.document_id)
+        project_id, submission_id = plan_service.project_of(s, doc)
+        plan_service.set_decision(s, item, value, project_id, submission_id)
+        return _row_response(request, s, s.get(Project, project_id), item)
+
+
+@app.post('/api/check-items/{item_id}/comment', response_class=HTMLResponse)
+def item_comment(request: Request, item_id: int, comment: str = Form('')):
+    with db() as s:
+        item = s.get(CheckItem, item_id)
+        if item is None:
+            raise HTTPException(404, 'позиция не найдена')
+        plan = s.get(CheckPlan, item.plan_id)
+        if plan.status == models.FROZEN:
+            raise HTTPException(409, 'план зафиксирован')
+        item.comment = comment.strip()[:2000]
+        doc = s.get(Document, plan.document_id)
+        project_id, submission_id = plan_service.project_of(s, doc)
+        plan_service.set_decision(s, item, item.decision, project_id, submission_id)
+        return _row_response(request, s, s.get(Project, project_id), item)
+
+
+@app.post('/api/check-plans/{plan_id}/bulk', response_class=HTMLResponse)
+def plan_bulk(request: Request, plan_id: int, value: str = Form(...),
+              scope: str = Form(''), q: str = Form(''), flt: str = Form(''),
+              overwrite: str = Form('')):
+    with db() as s:
+        plan = s.get(CheckPlan, plan_id)
+        if plan is None:
+            raise HTTPException(404, 'план не найден')
+        if plan.status == models.FROZEN:
+            raise HTTPException(409, 'план зафиксирован: создайте новую версию')
+        doc = s.get(Document, plan.document_id)
+        project_id, submission_id = plan_service.project_of(s, doc)
+        rows = plan_service.items(s, plan.id)
+        target = plan_service.filtered(rows, q, flt) if scope == 'filtered' else [
+            r for r in rows if r.cls == scope] if scope in ('A', 'B', 'C') else rows
+        changed, kept = plan_service.bulk(s, target, value, bool(overwrite),
+                                          project_id, submission_id)
+        log.info('план %s: массовое действие %s, изменено %s, оставлено %s',
+                 plan.id, value, changed, kept)
+        ctx = _plan_ctx(s, doc, q, flt)
+        ctx['flash'] = f'Изменено позиций: {changed}' + (
+            f', оставлено с решением эксперта: {kept}' if kept else '')
+        return templates.TemplateResponse(request, '_checkplan_table.html', {
+            'request': request, 'project': s.get(Project, project_id), 'plan': ctx})
+
+
+@app.post('/api/check-plans/{plan_id}/freeze')
+def plan_freeze(plan_id: int):
+    with db() as s:
+        plan = s.get(CheckPlan, plan_id)
+        if plan is None:
+            raise HTTPException(404, 'план не найден')
+        doc = s.get(Document, plan.document_id)
+        project_id, _ = plan_service.project_of(s, doc)
+        plan_service.freeze(s, plan, plan_service.items(s, plan.id))
+        return RedirectResponse(
+            f'/projects/{project_id}?tab=checkplan&doc={doc.id}', status_code=303)
+
+
+@app.get('/api/symbols/{symbol_id}.png')
+def symbol_image(symbol_id: int):
+    """Картинка условного обозначения. Веб файлы не разбирает, но отдать
+    восемь килобайт из хранилища дешевле, чем городить подписанные ссылки."""
+    with db() as s:
+        sym = s.get(Symbol, symbol_id)
+        if sym is None or not sym.image_key:
+            raise HTTPException(404, 'изображение не найдено')
+        try:
+            data = get_storage().read_bytes(sym.image_key)
+        except Exception:
+            raise HTTPException(404, 'изображение недоступно')
+    return Response(data, media_type='image/png',
+                    headers={'Cache-Control': 'public, max-age=86400'})
 
 
 @app.get('/projects/{project_id}/composition', response_class=HTMLResponse)

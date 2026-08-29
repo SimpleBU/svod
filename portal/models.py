@@ -18,6 +18,12 @@ Json = JSON().with_variant(JSONB, 'postgresql')
 # статусы тома
 NEW, QUEUED, RUNNING, DONE, ERROR = 'new', 'queued', 'running', 'done', 'error'
 
+# статусы плана проверки
+DRAFT, FROZEN = 'draft', 'frozen'
+
+# решение эксперта по позиции: не трогал / беру / снимаю
+AUTO, TAKE, SKIP = 'auto', 'take', 'skip'
+
 
 class Base(DeclarativeBase):
     pass
@@ -81,6 +87,9 @@ class Document(Base, TimestampMixin):
     error: Mapped[str] = mapped_column(Text, default='')
     capabilities: Mapped[dict] = mapped_column(Json, default=dict)
     kind_counts: Mapped[dict] = mapped_column(Json, default=dict)
+    # расхождения между объявленным и фактическим: производны от разбора,
+    # поэтому лежат json-ом рядом с томом, а не отдельной таблицей
+    findings: Mapped[dict] = mapped_column(Json, default=list)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submission: Mapped['Submission'] = relationship(back_populates='documents')
 
@@ -142,5 +151,161 @@ class Run(Base, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class DeclaredSheet(Base):
+    """Строка ведомости рабочих чертежей: что бюро объявило в томе."""
+    __tablename__ = 'declared_sheet'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    no: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(Text, default='')
+    revisions: Mapped[list] = mapped_column(Json, default=list)
+    mark: Mapped[str] = mapped_column(String(20), default='')   # Зам. / Нов. / -
+    src_page: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DocRef(Base):
+    """Ссылочный, прилагаемый документ или соседний комплект раздела."""
+    __tablename__ = 'doc_ref'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    kind: Mapped[str] = mapped_column(String(20))     # referenced|attached|volume
+    code: Mapped[str] = mapped_column(String(200), default='')
+    title: Mapped[str] = mapped_column(Text, default='')
+    sheets_declared: Mapped[int | None] = mapped_column(Integer)
+    note: Mapped[str] = mapped_column(Text, default='')
+    present: Mapped[bool] = mapped_column(Boolean, default=False)
+    src_page: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class NormRef(Base):
+    """Норматив из общих указаний со статусом из реестра."""
+    __tablename__ = 'norm_ref'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    code: Mapped[str] = mapped_column(String(120), default='')
+    title: Mapped[str] = mapped_column(Text, default='')
+    status: Mapped[str] = mapped_column(String(20), default='unknown')
+    replaced_by: Mapped[str] = mapped_column(String(300), default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    contextual: Mapped[bool] = mapped_column(Boolean, default=False)
+    sources: Mapped[list] = mapped_column(Json, default=list)
+
+
+class Symbol(Base):
+    """Строка таблицы условных обозначений: подпись и картинка символа."""
+    __tablename__ = 'symbol'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    name: Mapped[str] = mapped_column(Text, default='')
+    code: Mapped[str] = mapped_column(String(60), default='')
+    page: Mapped[int] = mapped_column(Integer, default=0)
+    image_key: Mapped[str] = mapped_column(String(500), default='')
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)   # марка есть в спецификации
+
+
+class RevisionEntry(Base):
+    """Строка листа регистрации изменений."""
+    __tablename__ = 'revision_entry'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    number: Mapped[int | None] = mapped_column(Integer)
+    sheets: Mapped[str] = mapped_column(Text, default='')
+    content: Mapped[str] = mapped_column(Text, default='')
+    doc_code: Mapped[str] = mapped_column(String(200), default='')
+    basis: Mapped[str] = mapped_column(Text, default='')
+    src_page: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CheckPlan(Base, TimestampMixin):
+    """Версия плана проверки по тому.
+
+    Черновик правится галочками; зафиксированный только читается — по нему
+    и запускается сверка, чтобы замечание можно было привязать к версии.
+    """
+    __tablename__ = 'check_plan'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey('org.id', ondelete='CASCADE'), index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
+                                             index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default=DRAFT, index=True)
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stats: Mapped[dict] = mapped_column(Json, default=dict)
+
+
+class CheckItem(Base):
+    """Позиция плана проверки.
+
+    `cls` пишет машина, `decision` — эксперт. Разделение осознанное: булев
+    флаг «включено» либо затирался бы прогоном, либо не давал машине ничего
+    предлагать.
+    """
+    __tablename__ = 'check_item'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey('check_plan.id', ondelete='CASCADE'),
+                                         index=True)
+    spec_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey('spec_item.id', ondelete='SET NULL'))
+    key: Mapped[str] = mapped_column(String(40), index=True)
+    source: Mapped[str] = mapped_column(String(20), default='spec')   # spec|manual
+    pos: Mapped[str] = mapped_column(String(40), default='')
+    name: Mapped[str] = mapped_column(Text, default='')
+    mark: Mapped[str] = mapped_column(String(300), default='')
+    unit: Mapped[str] = mapped_column(String(20), default='')
+    qty: Mapped[float | None] = mapped_column(Float)
+    page: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    cls: Mapped[str] = mapped_column(String(2), default='C', index=True)
+    reasons: Mapped[list] = mapped_column(Json, default=list)
+    verifiable_by: Mapped[list] = mapped_column(Json, default=list)
+    evidence: Mapped[list] = mapped_column(Json, default=list)
+    decision: Mapped[str] = mapped_column(String(10), default=AUTO)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    comment: Mapped[str] = mapped_column(Text, default='')
+
+    @property
+    def included(self):
+        """Что реально пойдёт в проверку: решение эксперта, иначе класс A."""
+        if self.decision == TAKE:
+            return True
+        if self.decision == SKIP:
+            return False
+        return self.cls == 'A'
+
+    @property
+    def origin(self):
+        """Откуда взялась галочка — это и есть метрика качества модели."""
+        if self.decision == TAKE:
+            return 'взято вручную'
+        if self.decision == SKIP:
+            return 'снято экспертом'
+        return 'предложено машиной' if self.cls == 'A' else ''
+
+
+class CheckRule(Base, TimestampMixin):
+    """Решение эксперта, перенесённое на уровень объекта.
+
+    Когда бюро присылает «Изм. 2», отбор не начинается с нуля: решения
+    переносятся по ключу позиции с пометкой, что это наследство.
+    """
+    __tablename__ = 'check_rule'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey('project.id', ondelete='CASCADE'),
+                                            index=True)
+    key: Mapped[str] = mapped_column(String(40), index=True)
+    decision: Mapped[str] = mapped_column(String(10), default=AUTO)
+    comment: Mapped[str] = mapped_column(Text, default='')
+    from_submission_id: Mapped[int | None] = mapped_column(Integer)
+
+
 Index('ix_spec_item_doc_mark', SpecItem.document_id, SpecItem.canon_mark)
 Index('ix_sheet_doc_page', Sheet.document_id, Sheet.page)
+Index('ix_check_item_plan_cls', CheckItem.plan_id, CheckItem.cls)
+Index('ix_check_rule_project_key', CheckRule.project_id, CheckRule.key, unique=True)

@@ -26,6 +26,14 @@ class Storage:
     def put_stream(self, key, fileobj):
         raise NotImplementedError
 
+    def put_bytes(self, key, data, content_type='application/octet-stream'):
+        import io as _io
+        return self.put_stream(key, _io.BytesIO(data))
+
+    def read_bytes(self, key):
+        """Небольшой файл целиком: картинки УГО отдаёт веб, а не браузер."""
+        raise NotImplementedError
+
     def exists(self, key):
         raise NotImplementedError
 
@@ -56,6 +64,10 @@ class LocalStorage(Storage):
         shutil.copyfile(self._path(key), path)
         return path
 
+    def read_bytes(self, key):
+        with open(self._path(key), 'rb') as f:
+            return f.read()
+
     def exists(self, key):
         return self._path(key).exists()
 
@@ -85,9 +97,17 @@ class S3Storage(Storage):
         self.client.upload_fileobj(fileobj, self.bucket, key)
         return self.client.head_object(Bucket=self.bucket, Key=key)['ContentLength']
 
+    def put_bytes(self, key, data, content_type='application/octet-stream'):
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data,
+                               ContentType=content_type)
+        return len(data)
+
     def download_to(self, key, path):
         self.client.download_file(self.bucket, key, str(path))
         return path
+
+    def read_bytes(self, key):
+        return self.client.get_object(Bucket=self.bucket, Key=key)['Body'].read()
 
     def exists(self, key):
         from botocore.exceptions import ClientError
@@ -106,6 +126,14 @@ def get_storage():
     if _storage is None:
         _storage = S3Storage() if config.STORAGE_BACKEND == 's3' else LocalStorage()
     return _storage
+
+
+def symbol_key(document_id, index):
+    """Ключ картинки условного обозначения. Лежит там же, где тома:
+    общий диск у веба и воркера на Render невозможен."""
+    prefix = config.S3_PREFIX.strip('/') if config.STORAGE_BACKEND == 's3' else ''
+    return '/'.join(x for x in (prefix, str(document_id), 'symbols',
+                                f'{index:03d}.png') if x)
 
 
 def object_key(document_id, filename):
