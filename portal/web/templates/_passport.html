@@ -12,6 +12,7 @@
     <div>
       <div class="mono psp-code">{{ doc.cipher or doc.filename }}</div>
       <div class="sub">{{ doc.section_label or doc.section or 'раздел не распознан' }}{% if doc.revision %} · {{ doc.revision }}{% endif %}</div>
+      <a class="btn psp-xlsx" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
     </div>
     <div class="psp-nums">
       <div><b class="num">{{ doc.pages_total|num }}</b><span class="upper">страниц</span></div>

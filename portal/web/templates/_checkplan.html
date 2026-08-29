@@ -18,6 +18,7 @@
       {% else %}<span class="sub">черновик</span>{% endif %}
     </div>
     <div style="display:flex;gap:8px">
+      <a class="btn" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
       {% if not plan.frozen %}
       <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
         <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="A">

@@ -63,6 +63,7 @@ h1 { font-size: 19px; font-weight: 500; letter-spacing: -.01em; margin: 0; }
 .btn:hover { border-color: var(--fg-7); color: var(--fg); }
 .btn-primary { padding: 8px 14px; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
 .btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+a.btn { display: inline-block; }
 .btn-danger { border-color: #3a2a2a; color: var(--r-fg); }
 .btn-danger:hover { border-color: #5a3a3a; background: rgba(200,84,76,.08); color: var(--r-fg); }
 
@@ -170,6 +171,7 @@ input.search:focus { border-color: var(--accent); }
 .psp { display: flex; flex-direction: column; gap: 26px; padding-bottom: 60px; }
 .psp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .psp-code { font-size: 16px; }
+.psp-xlsx { margin-top: 12px; }
 .psp-nums { display: flex; gap: 26px; }
 .psp-nums div { display: flex; flex-direction: column; gap: 2px; text-align: right; }
 .psp-nums b { font-family: var(--mono); font-size: 17px; font-weight: 500; }

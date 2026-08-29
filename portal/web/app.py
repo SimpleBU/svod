@@ -24,9 +24,10 @@ from .. import auth
 from .. import checkplan as plan_service
 from .. import config, models, nomenclature, passport as passport_service
 from ..db import SessionLocal, upgrade_schema
-from ..exporting import workbook_bytes
+from ..exporting import passport_workbook_bytes, workbook_bytes
 from ..flags import readiness, document_flags
-from ..models import CheckItem, CheckPlan, Document, Org, Project, Run, Submission, Symbol
+from ..models import (CheckItem, CheckPlan, Document, Org, Project, Run,
+                      Submission, Symbol, User)
 from ..naming import parse_filename
 from ..queue import enqueue_intake
 from ..storage import get_storage, object_key
@@ -512,7 +513,31 @@ def project_xlsx(project_id: int):
         p, sub = _load(s, project_id)
         rows, totals = nomenclature.collect(s, sub.id)
         data = workbook_bytes(p, sub, sub.documents, rows, totals)
-    name = re.sub(r'[^\w\-. ]', '_', f'{p.code or p.name}_приёмка.xlsx')
+    return _xlsx(data, f'{p.code or p.name}_приёмка.xlsx')
+
+
+@app.get('/projects/{project_id}/passport.xlsx')
+def project_passport_xlsx(project_id: int, doc: int = 0):
+    """Паспорт тома и план проверки одной книгой — то же, что на экране.
+
+    Экспорт делает веб, а не воркер: всё нужное уже лежит в БД, PDF при этом
+    не открывается, и книга собирается за доли секунды.
+    """
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        if picked is None:
+            raise HTTPException(404, 'том не разобран')
+        psp = passport_service.context(s, picked)
+        plan = _plan_ctx(s, picked)
+        users = {u.id: (u.name or u.email) for u in s.scalars(select(User)).all()}
+        data = passport_workbook_bytes(p, sub, picked, psp, plan, users)
+        stem = picked.cipher or picked.filename.rsplit('.', 1)[0]
+    return _xlsx(data, f'{stem}_паспорт.xlsx')
+
+
+def _xlsx(data: bytes, name: str):
+    name = re.sub(r'[^\w\-. ]', '_', name)
     return Response(data, media_type=(
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
         headers={'Content-Disposition':
