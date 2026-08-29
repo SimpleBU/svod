@@ -25,7 +25,7 @@ from .db import SessionLocal
 from .models import (CheckItem, CheckPlan, CheckRule, DeclaredSheet, DocRef,
                      Document, MatchItem, NormRef, RevisionEntry, Run, Sheet,
                      SpecItem, Submission, Symbol)
-from .storage import get_storage, symbol_key
+from .storage import get_storage, page_key, symbol_key
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +155,10 @@ def run_intake(document_id):
         log.info('том %s разобран: %s листов, %s позиций спецификации, '
                  '%s расхождений', doc.id, result.pages_total, len(result.spec),
                  len(psp.findings))
+        # картинки листов рисуются отдельной задачей: разбор эксперт видит
+        # сразу, листы догружаются в фоне
+        from .queue import enqueue_render
+        enqueue_render(doc.id)
     except Exception as exc:  # noqa: BLE001 — сообщение уходит эксперту
         session.rollback()
         text = _explain(exc)
@@ -172,6 +176,60 @@ def run_intake(document_id):
             session.commit()
         except Exception:
             log.exception('не удалось записать ошибку тома %s', document_id)
+    finally:
+        if tmpdir is not None:
+            tmpdir.cleanup()
+        session.close()
+
+
+# ------------------------------------------------------- картинки листов
+
+def run_render(document_id):
+    """Обзорные картинки и миниатюры всех листов тома.
+
+    Идёт отдельной задачей после приёмки: результаты разбора эксперт
+    видит сразу, а листы дорисовываются в фоне. Просмотрщик умеет
+    нарисовать недостающий лист сам, так что незаконченная задача
+    ничего не ломает — только замедляет первое открытие.
+    """
+    session = SessionLocal()
+    tmpdir = None
+    try:
+        doc = session.get(Document, document_id)
+        if doc is None or not doc.file_key:
+            return
+        storage = get_storage()
+        tmpdir = tempfile.TemporaryDirectory(prefix='svod-')
+        local = Path(tmpdir.name) / 'том.pdf'
+        storage.download_to(doc.file_key, local)
+
+        from agent.render import page_image, THUMB_WIDTH
+        import pymupdf as fitz
+        pdf = fitz.open(local)
+        try:
+            done = 0
+            for page in range(1, len(pdf) + 1):
+                try:
+                    im = page_image(pdf, page)
+                    storage.put_bytes(page_key(doc.id, page), im.png, 'image/png')
+                    th = page_image(pdf, page, width=THUMB_WIDTH)
+                    storage.put_bytes(page_key(doc.id, page, 'thumb'), th.png,
+                                      'image/png')
+                except Exception:
+                    log.exception('лист %s тома %s не отрисован', page, doc.id)
+                    continue
+                done += 1
+                if done % 10 == 0:
+                    doc.pages_rendered = done
+                    session.commit()
+        finally:
+            pdf.close()
+        doc.pages_rendered = done
+        session.commit()
+        log.info('том %s: отрисовано листов %s', doc.id, done)
+    except Exception:
+        session.rollback()
+        log.exception('том %s: ошибка отрисовки листов', document_id)
     finally:
         if tmpdir is not None:
             tmpdir.cleanup()

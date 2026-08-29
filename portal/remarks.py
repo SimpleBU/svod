@@ -199,6 +199,38 @@ def from_match(session, doc, item, status, user_id=None):
                   level=item.level, user_id=user_id)
 
 
+def sheet_key(page, x, y) -> str:
+    """Ключ метки на листе: страница и координаты с точностью до 0,1 %.
+
+    Две метки в одной точке одного листа — это одно замечание; в
+    соседней точке — уже другое.
+    """
+    return f's:{int(page)}:{round(float(x), 3)}:{round(float(y), 3)}'[:80]
+
+
+def from_sheet(session, doc, page, x, y, text='', level='red', mark='',
+               user_id=None):
+    """Замечание, поставленное точкой на листе.
+
+    Якорь принадлежит этому файлу: на следующей подаче тот же узел
+    окажется на другой странице, поэтому рядом с координатами хранится
+    id тома, из которого они взяты.
+    """
+    label = mark.strip() or f'л. {int(page)}, точка {round(x * 100)}×{round(y * 100)}'
+    remark = decide(session, doc, sheet_key(page, x, y), models.OPEN,
+                    source='sheet', subject=label,
+                    text=(text or '').strip(),
+                    evidence=f'метка на листе {int(page)}',
+                    sheets=[int(page)], level=level, user_id=user_id)
+    remark.page = int(page)
+    remark.anchor = {'kind': 'point', 'x': round(float(x), 5),
+                     'y': round(float(y), 5), 'w': 0.0, 'h': 0.0}
+    remark.anchor_document_id = doc.id
+    remark.anchor_label = label[:120]
+    session.commit()
+    return remark
+
+
 def from_passport(session, doc, finding, status, user_id=None):
     code = finding.get('code', '')
     return decide(session, doc, passport_key(finding), status, source='passport',

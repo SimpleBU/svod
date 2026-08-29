@@ -34,6 +34,21 @@ def enqueue_intake(document_id):
     return None
 
 
+def enqueue_render(document_id):
+    """Отрисовка листов тома для просмотрщика. Дешевле сверки, но всё равно
+    минуты на комплект, поэтому в фоне."""
+    if config.REDIS_URL and not config.INLINE_WORKER:
+        job = _redis_queue().enqueue('portal.tasks.run_render', document_id,
+                                     job_timeout=3600, result_ttl=600)
+        log.info('отрисовка тома %s поставлена в очередь (%s)', document_id, job.id)
+        return job.id
+    from .tasks import run_render
+    t = threading.Thread(target=run_render, args=(document_id,), daemon=True,
+                         name=f'render-{document_id}')
+    t.start()
+    return None
+
+
 def enqueue_match(document_id):
     """Сверка с чертежами: та же очередь, отдельная задача.
 

@@ -136,6 +136,24 @@ def symbol_key(document_id, index):
                                 f'{index:03d}.png') if x)
 
 
+def page_key(document_id, page, kind='overview'):
+    """Картинка листа: обзор, миниатюра или кроп под зум.
+
+    Кропы — кэш: их можно потерять и пережить, обзор и миниатюра живут
+    вместе с томом.
+    """
+    prefix = config.S3_PREFIX.strip('/') if config.STORAGE_BACKEND == 's3' else ''
+    return '/'.join(x for x in (prefix, str(document_id), 'pages',
+                                str(int(page)), f'{kind}.png') if x)
+
+
+def crop_key(document_id, page, box, width):
+    """Ключ кропа: округлённая рамка и ширина. Округление до 0,5 % даёт
+    попадание в кэш при повторном заходе в ту же область."""
+    b = '_'.join(f'{round(float(v) * 200):d}' for v in box)
+    return page_key(document_id, page, f'crop-{b}-{int(width)}')
+
+
 def object_key(document_id, filename):
     safe = ''.join(c for c in os.path.basename(filename)
                    if c.isalnum() or c in ' .-_()[]').strip() or 'том.pdf'

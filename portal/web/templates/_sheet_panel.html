@@ -1,0 +1,98 @@
+{# просмотрщик листа: полоса листов, сам лист с метками, замечания листа #}
+<div id="sheetpanel" class="sheetwrap"
+     data-doc="{{ doc.id }}" data-page="{{ sheet.page }}"
+     data-project="{{ project.id }}">
+
+  <div class="sheetnav">
+    {% for s in sheet.sheets %}
+      <a class="thumb {{ 'on' if s.page == sheet.page }}"
+         href="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}"
+         hx-get="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}"
+         hx-target="#sheetpanel" hx-swap="outerHTML" title="{{ s.title }}">
+        <img loading="lazy" src="/api/pages/{{ doc.id }}/{{ s.page }}.png?kind=thumb" alt="">
+        <span class="thumb-no mono">{{ s.page }}</span>
+        <span class="thumb-kind">{{ s.label }}{% if s.marked %} <i class="dot"></i>{% endif %}</span>
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="sheetview">
+    <div class="sheetbar">
+      <div class="sub">
+        Лист {{ sheet.page }} из {{ sheet.total }}{% if sheet.sheet %} ·
+        {{ sheet.sheet.label }}{% if sheet.sheet.title %} · {{ sheet.sheet.title }}{% endif %}{% endif %}
+        {% if sheet.ready < sheet.total %} · <span class="muted">картинки листов дорисовываются: {{ sheet.ready }} из {{ sheet.total }}</span>{% endif %}
+      </div>
+      <div class="sheettools">
+        {% if sheet.item %}<span class="tag tag-plan">{{ sheet.item.marks|join(' · ') if sheet.item.marks else sheet.item.mark }}: найдено {{ sheet.highlights|length }}</span>{% endif %}
+        <button class="btn btn-mini" data-zoom="out">−</button>
+        <button class="btn btn-mini" data-zoom="reset">лист целиком</button>
+        <button class="btn btn-mini" data-zoom="in">+</button>
+      </div>
+    </div>
+
+    <div class="sheetstage" id="stage">
+      <div class="sheetimg" id="canvas">
+        <img id="sheetpic" src="/api/pages/{{ doc.id }}/{{ sheet.page }}.png" alt="лист {{ sheet.page }}">
+        <img id="sheetcrop" hidden alt="">
+        {% for h in sheet.highlights %}
+          <div class="hit" style="left:{{ (h.x * 100)|round(3) }}%;top:{{ (h.y * 100)|round(3) }}%;width:{{ (h.w * 100)|round(3) }}%;height:{{ (h.h * 100)|round(3) }}%"></div>
+        {% endfor %}
+        {% for r in sheet.remarks %}
+          {% if r.anchor and r.anchor.x is defined %}
+            <div class="pin lvl-{{ 'r' if r.level == 'red' else 'y' }}{{ ' pin-off' if r.status == 'dismissed' }}"
+                 style="left:{{ (r.anchor.x * 100)|round(3) }}%;top:{{ (r.anchor.y * 100)|round(3) }}%"
+                 data-rem="{{ r.id }}" title="{{ r.text[:120] }}"></div>
+          {% endif %}
+        {% endfor %}
+        <div class="pin pin-new" id="newpin" hidden></div>
+      </div>
+    </div>
+    <div class="sheethint sub">Клик по листу ставит метку и открывает форму замечания.
+      Колесо мыши — зум, перетаскивание — сдвиг.</div>
+  </div>
+
+  <aside class="sheetside">
+    <form id="newremark" class="newrem" hidden
+          hx-post="/api/documents/{{ doc.id }}/sheet-remark"
+          hx-target="#sheetpanel" hx-swap="outerHTML">
+      <input type="hidden" name="page" value="{{ sheet.page }}">
+      <input type="hidden" name="x" id="nx" value="">
+      <input type="hidden" name="y" id="ny" value="">
+      <input type="hidden" name="mark" value="{{ (sheet.item.marks|join(' · ') if sheet.item and sheet.item.marks else (sheet.item.mark if sheet.item else '')) }}">
+      <div class="row-between">
+        <b>Новое замечание</b>
+        <span class="sub mono" id="nlabel"></span>
+      </div>
+      <textarea name="text" rows="4" placeholder="Что не так на этом листе"></textarea>
+      <div class="row-between">
+        <select name="level" class="sel">
+          <option value="red">критично</option>
+          <option value="amber">на усмотрение</option>
+        </select>
+        <div style="display:flex;gap:8px">
+          <button class="link" type="button" id="cancelrem">отмена</button>
+          <button class="btn btn-primary" type="submit">Завести</button>
+        </div>
+      </div>
+    </form>
+
+    <div class="sub sheetside-head">
+      {% if sheet.remarks %}Замечания на листе {{ sheet.page }}: {{ sheet.remarks|length }}
+      {% else %}На этом листе замечаний нет{% endif %}
+    </div>
+    {% for r in sheet.remarks %}
+      <div class="remcard lvl-{{ 'r' if r.level == 'red' else 'y' }}{{ ' rem-off' if r.status == 'dismissed' }}"
+           data-rem="{{ r.id }}" id="remcard-{{ r.id }}">
+        <div class="row-between">
+          <span class="mono sub">{{ r.anchor_label or r.subject }}</span>
+          <span class="tag {{ 'tag-g' if r.status == 'open' }}">{{
+            {'open':'в работе','sent':'передано бюро','dismissed':'снято',
+             'fixed':'исправлено','resolved':'закрыто'}.get(r.status, r.status) }}</span>
+        </div>
+        <div>{{ r.text }}</div>
+      </div>
+    {% endfor %}
+  </aside>
+</div>
+

@@ -119,6 +119,8 @@ class Document(Base, TimestampMixin):
     # итог последней сверки с чертежами: строки лежат в match_item
     match_stats: Mapped[dict] = mapped_column(Json, default=dict)
     matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # сколько листов отрисовано для просмотрщика: картинки лежат в хранилище
+    pages_rendered: Mapped[int] = mapped_column(Integer, default=0)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submission: Mapped['Submission'] = relationship(back_populates='documents')
 
@@ -373,6 +375,9 @@ class MatchItem(Base):
     level: Mapped[str] = mapped_column(String(10), default='ok', index=True)
     source: Mapped[str] = mapped_column(String(80), default='')
     keys: Mapped[list] = mapped_column(Json, default=list)
+    # где марка подписана на листах: [{page, x, y, w, h}] в долях листа.
+    # Заполняется лениво, при первом переходе «показать на листе»
+    anchors: Mapped[list] = mapped_column(Json, default=list)
     in_plan: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     spec_pages: Mapped[list] = mapped_column(Json, default=list)
     plan_pages: Mapped[list] = mapped_column(Json, default=list)
@@ -400,8 +405,17 @@ class Remark(Base, TimestampMixin):
     org_id: Mapped[int] = mapped_column(ForeignKey('org.id', ondelete='CASCADE'), index=True)
     document_id: Mapped[int] = mapped_column(ForeignKey('document.id', ondelete='CASCADE'),
                                              index=True)
-    source: Mapped[str] = mapped_column(String(10), default='match')   # match|passport
+    # match | passport | sheet — последнее заведено прямо с листа чертежа
+    source: Mapped[str] = mapped_column(String(10), default='match')
     key: Mapped[str] = mapped_column(String(80), index=True)
+    # якорь на листе: страница PDF и координаты в долях отрисованной картинки.
+    # Принадлежит конкретному файлу, поэтому рядом лежит его id: на следующей
+    # подаче тот же узел окажется на другой странице, и переносить координаты
+    # нельзя — замечание переносится, якорь нет
+    page: Mapped[int | None] = mapped_column(Integer)
+    anchor: Mapped[dict] = mapped_column(Json, default=dict)
+    anchor_document_id: Mapped[int | None] = mapped_column(Integer)
+    anchor_label: Mapped[str] = mapped_column(String(120), default='')
     status: Mapped[str] = mapped_column(String(10), default=OPEN, index=True)
     level: Mapped[str] = mapped_column(String(10), default='red')
     # что показывать в списке: марка или тип проверки

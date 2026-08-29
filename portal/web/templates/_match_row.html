@@ -16,6 +16,9 @@
     </div>
   </td>
   <td class="c-act">
+    {% if i.plan_pages or i.schema_pages %}
+      <a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ i.document_id }}&item={{ i.id }}">показать на листе</a>
+    {% endif %}
     {% if i.remark and i.remark.status == 'dismissed' %}
       <div class="verdict v-off">снято</div>
       <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"

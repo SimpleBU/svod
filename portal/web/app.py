@@ -24,6 +24,7 @@ from .. import auth
 from .. import checkplan as plan_service
 from .. import config, models, nomenclature, passport as passport_service
 from .. import letter, match as match_service, remarks as remark_service
+from .. import sheets as sheet_service
 from ..db import SessionLocal, upgrade_schema
 from ..exporting import passport_workbook_bytes, workbook_bytes
 from ..flags import readiness, document_flags
@@ -349,7 +350,8 @@ def _remarks_ctx(s, doc, sub, scope='doc'):
 @app.get('/projects/{project_id}', response_class=HTMLResponse)
 def project_page(request: Request, project_id: int, tab: str = 'composition',
                  q: str = '', section: str = '', flagged: int = 0,
-                 doc: int = 0, flt: str = '', scope: str = ''):
+                 doc: int = 0, flt: str = '', scope: str = '',
+                 page: int = 0, item: int = 0):
     with db() as s:
         p, sub = _load(s, project_id)
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
@@ -357,7 +359,7 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
         ctx['composition'] = _composition(s, p, sub)
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
-        elif tab in ('passport', 'checkplan', 'match', 'remarks'):
+        elif tab in ('passport', 'checkplan', 'match', 'remarks', 'sheet'):
             picked, docs = _pick_doc(sub, doc)
             ctx['docs'] = docs
             ctx['doc'] = picked
@@ -366,6 +368,9 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
             elif picked is not None and tab == 'match':
                 ctx['match'] = match_service.context(s, picked, q,
                                                      flt if flt else None)
+            elif picked is not None and tab == 'sheet':
+                ctx['sheet'] = sheet_service.context(s, picked, page,
+                                                     item or None)
             elif picked is not None and tab == 'remarks':
                 ctx['remarks'] = _remarks_ctx(s, picked, sub, scope or 'doc')
             elif picked is not None:
@@ -433,8 +438,11 @@ def match_remark(request: Request, item_id: int, status: str = Form(...)):
         doc = s.get(Document, item.document_id)
         item.remark = remark_service.from_match(s, doc, item, status, _uid(request))
         item.level_class = match_service.LEVELS.get(item.level, '')
-        return templates.TemplateResponse(request, '_match_row.html',
-                                          {'request': request, 'i': item})
+        project_id, _ = plan_service.project_of(s, doc)
+        return templates.TemplateResponse(
+            request, '_match_row.html',
+            {'request': request, 'i': item,
+             'project': s.get(Project, project_id)})
 
 
 @app.post('/api/documents/{document_id}/passport-remark', response_class=HTMLResponse)
@@ -618,6 +626,80 @@ def plan_freeze(plan_id: int):
         plan_service.freeze(s, plan, plan_service.items(s, plan.id))
         return RedirectResponse(
             f'/projects/{project_id}?tab=checkplan&doc={doc.id}', status_code=303)
+
+
+# ------------------------------------------------------------- лист чертежа
+
+def _png(data: bytes, immutable=True):
+    cache = 'public, max-age=86400' + (', immutable' if immutable else '')
+    return Response(data, media_type='image/png',
+                    headers={'Cache-Control': cache})
+
+
+@app.get('/api/pages/{document_id}/{page}.png')
+def page_png(document_id: int, page: int, kind: str = 'overview'):
+    """Обзор листа или миниатюра. Если воркер ещё не дошёл — рисуем сами."""
+    with db() as s:
+        doc = s.get(Document, document_id)
+        if doc is None or not doc.file_key:
+            raise HTTPException(404, 'том не найден')
+        if page < 1 or (doc.pages_total and page > doc.pages_total):
+            raise HTTPException(404, 'листа нет в томе')
+        data = sheet_service.image(doc, page,
+                                   'thumb' if kind == 'thumb' else 'overview')
+    return _png(data)
+
+
+@app.get('/api/pages/{document_id}/{page}/crop.png')
+def page_crop_png(document_id: int, page: int, box: str = '0,0,1,1',
+                  w: int = 1600):
+    """Кроп видимой области под зум. box — четыре доли через запятую."""
+    try:
+        parts = tuple(float(v) for v in box.split(','))
+        if len(parts) != 4:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(400, 'неверная рамка')
+    with db() as s:
+        doc = s.get(Document, document_id)
+        if doc is None or not doc.file_key:
+            raise HTTPException(404, 'том не найден')
+        data = sheet_service.crop(doc, page, parts, max(200, min(w, 3000)))
+    return _png(data)
+
+
+@app.get('/projects/{project_id}/sheet', response_class=HTMLResponse)
+def sheet_panel(request: Request, project_id: int, doc: int = 0, page: int = 0,
+                item: int = 0):
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        if picked is None:
+            raise HTTPException(404, 'том не разобран')
+        return templates.TemplateResponse(request, '_sheet_panel.html', {
+            'request': request, 'project': p, 'doc': picked,
+            'sheet': sheet_service.context(s, picked, page, item or None)})
+
+
+@app.post('/api/documents/{document_id}/sheet-remark', response_class=HTMLResponse)
+def sheet_remark(request: Request, document_id: int, page: int = Form(...),
+                 x: float = Form(...), y: float = Form(...),
+                 text: str = Form(''), level: str = Form('red'),
+                 mark: str = Form('')):
+    """Замечание, заведённое прямо с листа: метка плюс формулировка."""
+    with db() as s:
+        doc = s.get(Document, document_id)
+        if doc is None:
+            raise HTTPException(404, 'том не найден')
+        remark = remark_service.from_sheet(s, doc, page, x, y, text=text,
+                                           level=level, mark=mark,
+                                           user_id=_uid(request))
+        ctx = sheet_service.context(s, doc, page)
+        p = s.get(Project, s.get(Submission, doc.submission_id).project_id)
+        response = templates.TemplateResponse(request, '_sheet_panel.html', {
+            'request': request, 'project': p, 'doc': doc, 'sheet': ctx,
+            'created': remark.id})
+    return response
 
 
 @app.get('/api/symbols/{symbol_id}.png')
