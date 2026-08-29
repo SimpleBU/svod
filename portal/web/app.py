@@ -283,13 +283,33 @@ def checkplan_rows(request: Request, project_id: int, doc: int = 0,
 
 
 def _row_response(request, s, project, item):
-    """Строка плюс счётчик через out-of-band: галочка и число над таблицей
-    не должны расходиться."""
-    rows = plan_service.items(s, item.plan_id)
-    return templates.TemplateResponse(request, '_checkplan_row.html', {
+    """Только перерисованная строка.
+
+    Счётчик над таблицей обновляет себя сам, услышав событие planchanged:
+    класть <div> в один ответ с <tr> нельзя — htmx разбирает такой фрагмент
+    как содержимое таблицы, посторонний элемент выбрасывается парсером,
+    и обмен строки застревает на htmx-swapping.
+    """
+    resp = templates.TemplateResponse(request, '_checkplan_row.html', {
         'request': request, 'project': project, 'i': item,
-        'stats': plan_service.stats(rows), 'oob': True,
         'frozen': s.get(CheckPlan, item.plan_id).status == models.FROZEN})
+    resp.headers['HX-Trigger'] = 'planchanged'
+    return resp
+
+
+@app.get('/projects/{project_id}/checkplan/stats', response_class=HTMLResponse)
+def checkplan_stats(request: Request, project_id: int, doc: int = 0):
+    """Счётчик отбора отдельным запросом — см. `_row_response`."""
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        if picked is None:
+            raise HTTPException(404, 'том не разобран')
+        plan = plan_service.current_plan(s, picked.id)
+        rows = plan_service.items(s, plan.id) if plan else []
+        return templates.TemplateResponse(request, '_checkplan_counter.html', {
+            'request': request, 'project': p, 'doc_id': picked.id,
+            'stats': plan_service.stats(rows)})
 
 
 @app.post('/api/check-items/{item_id}/decision', response_class=HTMLResponse)

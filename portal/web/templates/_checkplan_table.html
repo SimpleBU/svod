@@ -1,5 +1,6 @@
 <div id="plantable">
   {% set stats = plan.stats %}
+  {% set doc_id = plan.doc.id %}
   {% include '_checkplan_counter.html' %}
   {% if plan.flash %}<div class="flash">{{ plan.flash }}</div>{% endif %}
   <div class="tbl-wrap">

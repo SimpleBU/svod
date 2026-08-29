@@ -1,4 +1,12 @@
-<div id="planstat" class="row-between" {% if oob %}hx-swap-oob="true"{% endif %}>
+{# Счётчик перерисовывает себя сам по событию planchanged, которое сервер
+   присылает заголовком HX-Trigger. Класть его в один ответ со строкой нельзя:
+   htmx разбирает фрагмент, начинающийся с <tr>, как содержимое таблицы,
+   и посторонний <div> оттуда выбрасывается парсером.
+   Комментарий именно jinja-шаблонный: html-комментарий в начале ответа
+   htmx принимает за узел-элемент и падает на querySelectorAll. #}
+<div id="planstat" class="row-between"
+     hx-get="/projects/{{ project.id }}/checkplan/stats?doc={{ doc_id }}"
+     hx-trigger="planchanged from:body" hx-swap="outerHTML">
   <div class="sub">
     К проверке отобрано <span class="num" style="color:var(--fg)">{{ stats.included }}</span>
     из <span class="num">{{ stats.total }}</span> позиций — {{ stats.percent }} %

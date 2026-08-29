@@ -8,9 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/static/app.css">
-<!-- htmx с CDN. Для закрытого контура застройщика положить файл рядом,
-     в /static/htmx.min.js, и заменить ссылку — сборки всё равно нет. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"></script>
+<!-- htmx лежит рядом, а не на CDN: у застройщика закрытый контур, да и
+     ронять интерфейс из-за чужого домена незачем. Сборки всё равно нет. -->
+<script src="/static/htmx.min.js"></script>
 </head>
 <body>
 <div class="app">

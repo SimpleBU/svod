@@ -9,14 +9,17 @@
 GREEN, AMBER, RED = 'g', 'y', 'r'
 LEVEL_ORDER = {GREEN: 0, AMBER: 1, RED: 2}
 
-CABLE_SECTIONS = ('ЭОМ', 'ЭМ', 'ЭС', 'ЭН', 'СС', 'АСУД', 'АУПС', 'АК')
+CABLE_SECTIONS = ('ЭОМ', 'ЭМ', 'ЭС', 'ЭН', 'СС', 'АСУД', 'АУПС', 'АК',
+                  'СПСиА', 'АУГПТ')
 LIGHT_SECTIONS = ('ЭОМ', 'ЭО')
 PIPE_SECTIONS = ('ОВ', 'ОВК', 'ВК', 'НВК', 'ТМ')
 
 
 def _in(section, group):
+    # обе стороны в верхнем регистре: шифр раздела бывает смешанным (СПСиА)
     s = (section or '').upper()
-    return any(s == g or s.startswith(g) and s[len(g):].isdigit() for g in group)
+    return any(s == g.upper() or s.startswith(g.upper()) and s[len(g):].isdigit()
+               for g in group)
 
 
 def document_flags(caps, section=''):
