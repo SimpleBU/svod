@@ -326,3 +326,6 @@ input.search:focus { border-color: var(--accent); }
 .rem-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .rem-act { display: flex; gap: 14px; flex-shrink: 0; }
 .rem-note { padding: 0 28px 6px; }
+.rem-group { padding: 14px 0 2px; font-size: 12px; color: var(--fg-3);
+             display: flex; align-items: baseline; gap: 10px; }
+.rem-group:first-child { padding-top: 0; }

@@ -1,42 +1,71 @@
 {% if not doc %}
   <div class="empty">Ни один том ещё не разобран. Загрузите PDF на вкладке «Состав комплекта».</div>
 {% else %}
+{% if remarks.scope != 'all' %}
 <div class="docbar">
   {% for d in docs %}
     <a href="?tab=remarks&doc={{ d.id }}" class="{{ 'active' if d.id == doc.id }}">{{ d.cipher or d.filename }}</a>
   {% endfor %}
 </div>
+{% endif %}
 
-{% if not remarks.rows %}
-  <div class="pad">
-    <div class="mstart">
-      <div class="big">Замечаний пока нет</div>
-      <div class="why">Замечание заводится с расхождения: на вкладке «Паспорт тома» — кнопкой
-        у расхождения в составе, на вкладке «Сверка с чертежами» — кнопкой в строке.
-        Формулировку портал предлагает сам, эксперт правит её здесь и подписывает
-        своим именем.</div>
-      <a class="btn" href="?tab=match&doc={{ doc.id }}">Перейти к сверке</a>
-    </div>
-  </div>
-{% else %}
-  <div class="filters">
-    <div class="row-between">
-      <div class="sub">
+<div class="filters">
+  <div class="row-between">
+    <div class="sub">
+      {% if remarks.rows %}
         {{ remarks.stats.total }} {{ remarks.stats.total|plural('замечание','замечания','замечаний') }} ·
         <b>{{ remarks.stats.open }}</b> в работе ·
         {{ remarks.stats.sent }} передано бюро ·
         {{ remarks.stats.dismissed }} снято
+      {% else %}
+        Замечаний {{ 'по этому тому' if remarks.scope != 'all' else 'по подаче' }} пока нет
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="seg">
+        <a href="?tab=remarks&doc={{ doc.id }}" class="{{ 'active' if remarks.scope != 'all' }}">этот том</a>
+        <a href="?tab=remarks&doc={{ doc.id }}&scope=all" class="{{ 'active' if remarks.scope == 'all' }}">вся подача</a>
       </div>
-      <a class="btn" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
+      {% if remarks.stats.open %}
+        <a class="btn btn-primary" href="/projects/{{ project.id }}/letter.docx?doc={{ doc.id }}&scope={{ remarks.scope }}">Письмо бюро (docx)</a>
+        <form method="post" action="/api/projects/{{ project.id }}/remarks/sent">
+          <input type="hidden" name="doc" value="{{ doc.id }}">
+          <input type="hidden" name="scope" value="{{ remarks.scope }}">
+          <button class="btn" type="submit">Отметить переданными</button>
+        </form>
+      {% endif %}
+      <a class="btn" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Excel</a>
     </div>
   </div>
+</div>
+
+{% if not remarks.rows %}
+  <div class="pad">
+    <div class="mstart">
+      <div class="big">Замечание заводится с расхождения</div>
+      <div class="why">На вкладке «Паспорт тома» — кнопкой у расхождения в составе,
+        на вкладке «Сверка с чертежами» — кнопкой в строке. Формулировку портал
+        предлагает сам, эксперт правит её здесь и подписывает своим именем.
+        Отсюда же собирается письмо бюро по всей подаче.</div>
+      <a class="btn" href="?tab=match&doc={{ doc.id }}">Перейти к сверке</a>
+    </div>
+  </div>
+{% else %}
   <div class="rems">
-  {% for r in remarks.rows %}
-    {% set users = remarks.users %}
-    {% include '_remark.html' %}
-    {% if r.id in remarks.orphaned %}
-      <div class="sub rem-note">Строки сверки с этой маркой в последнем прогоне нет —
-        возможно, бюро исправило чертёж.</div>
+  {% set users = remarks.users %}
+  {% for document, rows in remarks.groups %}
+    {% if rows %}
+      {% if remarks.scope == 'all' %}
+        <div class="rem-group mono">{{ document.cipher or document.filename }}
+          <span class="sub">{{ rows|length }}</span></div>
+      {% endif %}
+      {% for r in rows %}
+        {% include '_remark.html' %}
+        {% if r.id in remarks.orphaned %}
+          <div class="sub rem-note">Строки сверки с этой маркой в последнем прогоне нет —
+            возможно, бюро исправило чертёж.</div>
+        {% endif %}
+      {% endfor %}
     {% endif %}
   {% endfor %}
   </div>

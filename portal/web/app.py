@@ -23,7 +23,7 @@ from agent.api import KIND_LABELS, KIND_ORDER
 from .. import auth
 from .. import checkplan as plan_service
 from .. import config, models, nomenclature, passport as passport_service
-from .. import match as match_service, remarks as remark_service
+from .. import letter, match as match_service, remarks as remark_service
 from ..db import SessionLocal, upgrade_schema
 from ..exporting import passport_workbook_bytes, workbook_bytes
 from ..flags import readiness, document_flags
@@ -330,12 +330,18 @@ def _plan_ctx(s, doc, q='', flt=''):
             'frozen': plan.status == models.FROZEN}
 
 
-def _remarks_ctx(s, doc):
-    rows = remark_service.items(s, doc.id)
-    return {'doc': doc, 'rows': rows,
+def _remarks_ctx(s, doc, sub, scope='doc'):
+    """Замечания одного тома или всей подачи — письмо бюро уходит одно."""
+    docs = _parsed_docs(sub) if scope == 'all' else [doc]
+    groups = remark_service.groups(s, docs)
+    rows = [r for _, rs in groups for r in rs]
+    orphaned = set()
+    for d in docs:
+        orphaned |= {r.id for r in remark_service.orphaned(s, d.id)}
+    return {'doc': doc, 'scope': scope, 'groups': groups, 'rows': rows,
             'stats': remark_service.stats(rows),
             'labels': remark_service.STATUS_LABELS,
-            'orphaned': {r.id for r in remark_service.orphaned(s, doc.id)},
+            'orphaned': orphaned,
             'users': {u.id: (u.name or u.email)
                       for u in s.scalars(select(User)).all()}}
 
@@ -343,7 +349,7 @@ def _remarks_ctx(s, doc):
 @app.get('/projects/{project_id}', response_class=HTMLResponse)
 def project_page(request: Request, project_id: int, tab: str = 'composition',
                  q: str = '', section: str = '', flagged: int = 0,
-                 doc: int = 0, flt: str = ''):
+                 doc: int = 0, flt: str = '', scope: str = ''):
     with db() as s:
         p, sub = _load(s, project_id)
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
@@ -361,7 +367,7 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
                 ctx['match'] = match_service.context(s, picked, q,
                                                      flt if flt else None)
             elif picked is not None and tab == 'remarks':
-                ctx['remarks'] = _remarks_ctx(s, picked)
+                ctx['remarks'] = _remarks_ctx(s, picked, sub, scope or 'doc')
             elif picked is not None:
                 ctx['plan'] = _plan_ctx(s, picked, q, flt)
         return templates.TemplateResponse(request, 'project.html', ctx)
@@ -450,6 +456,48 @@ def passport_remark(request: Request, document_id: int, index: int = Form(...),
                    level_class=passport_service.LEVELS.get(f.get('level'), ''))
         return templates.TemplateResponse(request, '_finding.html',
                                           {'request': request, 'f': ctx, 'doc': doc})
+
+
+@app.get('/projects/{project_id}/letter.docx')
+def project_letter(project_id: int, doc: int = 0, scope: str = 'all'):
+    """Письмо бюро: замечания в работе, том за томом, одним документом."""
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        docs = _parsed_docs(sub) if scope == 'all' else (
+            [picked] if picked is not None else [])
+        groups = remark_service.for_letter(s, docs)
+        if not groups:
+            raise HTTPException(404, 'нет замечаний в работе')
+        total = sum(len(rs) for _, rs in groups)
+        authors = {r.author_id for _, rs in groups for r in rs if r.author_id}
+        author = ''
+        if len(authors) == 1:
+            u = s.get(User, authors.pop())
+            author = (u.name or u.email) if u else ''
+        data = letter.build(p, sub, groups, author=author,
+                            org_name=config.ORG_NAME, total=total)
+        name = letter.filename(p, sub)
+    return Response(data, media_type=(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+        headers={'Content-Disposition': "attachment; filename*=UTF-8''"
+                 + quote(re.sub(r'[^\w\-.]', '_', name))})
+
+
+@app.post('/api/projects/{project_id}/remarks/sent')
+def remarks_mark_sent(request: Request, project_id: int, doc: int = Form(0),
+                      scope: str = Form('all')):
+    """Отметить замечания переданными — после того, как письмо ушло."""
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        docs = _parsed_docs(sub) if scope == 'all' else (
+            [picked] if picked is not None else [])
+        remark_service.mark_sent(s, docs, _uid(request))
+        target = picked.id if picked is not None else 0
+    return RedirectResponse(
+        f'/projects/{project_id}?tab=remarks&doc={target}&scope={scope}',
+        status_code=303)
 
 
 @app.post('/api/remarks/{remark_id}', response_class=HTMLResponse)

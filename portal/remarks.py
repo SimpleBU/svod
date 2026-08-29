@@ -209,6 +209,38 @@ def from_passport(session, doc, finding, status, user_id=None):
                   level=finding.get('level', 'red'), user_id=user_id)
 
 
+def groups(session, documents):
+    """Замечания по томам подачи: [(том, [замечания])] в порядке томов."""
+    return [(d, items(session, d.id)) for d in documents]
+
+
+def for_letter(session, documents, status=models.OPEN):
+    """Что уходит в письмо: замечания в заданном статусе, том за томом.
+
+    Снятые в письмо не попадают никогда — их для того и снимали.
+    """
+    out = []
+    for d in documents:
+        rows = [r for r in items(session, d.id) if r.status == status]
+        if rows:
+            out.append((d, rows))
+    return out
+
+
+def mark_sent(session, documents, user_id=None):
+    """Отметить переданными всё, что было в работе. -> сколько отметили."""
+    n = 0
+    for d in documents:
+        for r in items(session, d.id):
+            if r.status == models.OPEN:
+                r.status = models.SENT
+                r.author_id = r.author_id or user_id
+                r.decided_at = _now()
+                n += 1
+    session.commit()
+    return n
+
+
 def orphaned(session, document_id):
     """Замечания сверки, чьей строки в свежем прогоне больше нет.
 
