@@ -24,7 +24,7 @@ from .extract import classify_pages, parse_spec
 from .match import canon_mark, page_multiplier
 from .cable_journal import journal_pages
 from .measure import detect_scale
-from .general import general as parse_general
+from .general import ATTACHED, general as parse_general
 from .norms import norms as parse_norms, problems as norm_problems
 from .symbols import render as render_symbols
 from .criticality import checkplan as build_checkplan, stats as checkplan_stats
@@ -309,11 +309,29 @@ def _findings(gen, res, norms_list, filename='', submission_codes=()):
 
     # шифры подачи плюс шифры, встреченные внутри самого тома: спецификацию
     # и кабельный журнал бюро часто подшивает в тот же файл
-    known = {_norm_code(c) for c in submission_codes if c}
-    known |= {_norm_code(s.code) for s in res.sheets if s.code}
-    known.discard('')
+    # нормализованный шифр -> как он написан в томе: в замечании должно стоять
+    # человеческое «ПР-01/24-2-ОВ1.СО», а не склейка без разделителей
+    known = {}
+    for c in list(submission_codes) + [s.code for s in res.sheets]:
+        k = _norm_code(c)
+        if k:
+            known.setdefault(k, c)
     for d in gen.refs:
-        if known and not _present(_norm_code(d.code), known):
+        # спрашивать за ссылочные документы нельзя: типовая серия, ГОСТ и альбом
+        # производителя объявлены как основание решения, а не как то, что бюро
+        # обязано сдать. Прилагаемые — обязано
+        if d.kind != ATTACHED or not known:
+            continue
+        code = _norm_code(d.code)
+        if _present(code, known):
+            continue
+        same = _same_suffix(code, known)
+        if same:
+            out.append(Finding(
+                'ref_cipher', AMBER,
+                f'Объявлен {d.code} «{d.title}», а в томе подшит {same} — '
+                'шифры расходятся', [d.src_page]))
+        else:
             tail = f' на {d.sheets_declared} листах' if d.sheets_declared else ''
             out.append(Finding('ref_missing', RED,
                                f'Объявлен {d.code} «{d.title}»{tail} — '
@@ -375,6 +393,23 @@ def _findings(gen, res, norms_list, filename='', submission_codes=()):
 
 def _flat(code):
     return re.sub(r'[\s\-–—_.,()"«»/]', '', (code or '')).lower().replace('ё', 'е')
+
+
+def _same_suffix(code, known):
+    """Тот же документ комплекта, но под другим шифром.
+
+    Ведомость объявляет ПР-01/24-8.2-ОВ1.СО, а в штампах листов стоит
+    ПР-01/24-2-ОВ1.СО: спецификация на месте, расходится шифр. Это другое
+    замечание, чем «файла нет», и путать их нельзя.
+    """
+    m = re.search(r'([А-ЯЁ]{2}\d*)$', code or '')
+    if not m:
+        return ''
+    suffix = m.group(1)
+    for k, original in known.items():
+        if k != code and k.endswith(suffix) and len(k) > len(suffix):
+            return original
+    return ''
 
 
 def _present(code, known):

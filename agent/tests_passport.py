@@ -33,8 +33,8 @@ def _res(spec=(), kind_counts=None, bad_pages=(), sheets=()):
               capabilities=NS(unreadable_font_pages=list(bad_pages)))
 
 
-def ref(code, title='', sheets=None, page=3):
-    return NS(code=code, title=title, sheets_declared=sheets, kind='attached',
+def ref(code, title='', sheets=None, page=3, kind='attached'):
+    return NS(code=code, title=title, sheets_declared=sheets, kind=kind,
               note_raw='', src_page=page)
 
 
@@ -78,6 +78,25 @@ def run():
                   submission_codes=['ПР-01/24-1-ЭОМ'])
     check(not [x for x in f if x.code == 'ref_missing'],
           'кабельный журнал внутри того же тома отмечен как отсутствующий')
+
+    # за ссылочные документы бюро не отвечает: типовая серия и ГОСТ объявлены
+    # как основание решения, а не как то, что нужно сдать
+    serie = [ref('Серия Б5.000-2.1', 'Крепление трубопроводов', kind='referenced')]
+    f = _findings(_gen(refs=serie), _res(), [], submission_codes=['ПР-01/24-1-ОВ1'])
+    check(not [x for x in f if x.code == 'ref_missing'],
+          'типовая серия отмечена как несданный документ')
+
+    # тот же документ под другим шифром — это не «файла нет»
+    other = [ref('ПР-01/24-8.2-ОВ1.СО', 'Спецификация', 55)]
+    f = _findings(_gen(refs=other),
+                  _res(sheets=[NS(code='ПР-01/24-2-ОВ1.СО', page=60)]), [],
+                  submission_codes=['ПР-01/24-2-ОВ1'])
+    codes = [x.code for x in f]
+    check('ref_cipher' in codes and 'ref_missing' not in codes,
+          f'расхождение шифров подано как отсутствие файла: {codes}')
+    cipher = next(x for x in f if x.code == 'ref_cipher')
+    check('ПР-01/24-2-ОВ1.СО' in cipher.text,
+          'в замечании о шифрах нет человеческого написания найденного шифра')
 
     # шифр с указанием листов — тот же документ
     refs2 = [ref('ПР-01/24-3-СПСиА.СО(л. 1-3)', 'Спецификация', 3)]
