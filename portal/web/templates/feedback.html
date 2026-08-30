@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Ложные срабатывания · {{ APP_NAME }}{% endblock %}
+{% block main %}
+<div class="topline">
+  <div class="crumbs-line">
+    <a href="/">Объекты</a>
+    <span class="sep">/</span>
+    <b class="title">Ложные срабатывания</b>
+    <span class="sub">· что машина посчитала расхождением, а эксперт — нет</span>
+  </div>
+  <div class="head-act">
+    {% if items %}
+      <a class="btn" href="/feedback.xlsx?project={{ project_id }}&source={{ source }}&reason={{ reason }}">Выгрузить в Excel</a>
+      <a class="btn btn-primary" href="/feedback.json?project={{ project_id }}&source={{ source }}&reason={{ reason }}">Выгрузить JSON для разбора</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="filters">
+  <div class="line">
+    <label class="docpick">
+      <span class="upper">Объект</span>
+      <select onchange="location.href=this.value">
+        <option value="/feedback?source={{ source }}&reason={{ reason }}" {{ 'selected' if not project_id }}>все объекты</option>
+        {% for p in projects %}
+          <option value="/feedback?project={{ p.id }}&source={{ source }}&reason={{ reason }}"
+                  {{ 'selected' if project_id == p.id }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="seg">
+      <a href="/feedback?project={{ project_id }}&reason={{ reason }}" class="{{ 'active' if not source }}">все {{ stats.total }}</a>
+      <a href="/feedback?project={{ project_id }}&reason={{ reason }}&source=match" class="{{ 'active' if source == 'match' }}">сверка {{ stats.match }}</a>
+      <a href="/feedback?project={{ project_id }}&reason={{ reason }}&source=passport" class="{{ 'active' if source == 'passport' }}">паспорт {{ stats.passport }}</a>
+    </div>
+    {% if stats.by_reason %}
+      <div class="seg">
+        <a href="/feedback?project={{ project_id }}&source={{ source }}" class="{{ 'active' if not reason }}">все причины</a>
+        {% for code, n in stats.by_reason %}
+          <a href="/feedback?project={{ project_id }}&source={{ source }}&reason={{ code }}"
+             class="{{ 'active' if reason == code }}" title="{{ code|reason }}">{{ code|reason|truncate(24, true) }} {{ n }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="scroll">
+{% if not items %}
+  <div class="empty">Ложных срабатываний пока нет. Они появляются, когда эксперт
+    снимает находку на вкладке «Приёмка» и пишет, что машина поняла неправильно.</div>
+{% else %}
+  <div class="fps">
+  {% for r in items %}
+    <div class="fp-row">
+      <div class="fp-row-head">
+        <span class="mono fp-subject">{{ r.subject }}</span>
+        <span class="tag">{{ 'сверка' if r.source == 'match' else 'паспорт тома' }}</span>
+        {% if r.code %}<span class="tag">{{ r.code }}</span>{% endif %}
+        <span class="tag tag-y">{{ r.reason|reason }}</span>
+        <span class="sub fp-row-meta">{{ r.context.get('cipher') or r.context.get('document', '') }}
+          · {{ r.context.get('project', '') }}
+          {%- if authors.get(r.author_id) %} · {{ authors[r.author_id] }}{% endif %}
+          {%- if r.created_at %} · {{ r.created_at.strftime('%d.%m.%Y') }}{% endif %}</span>
+      </div>
+      {% if r.comment %}<div class="fp-comment">{{ r.comment }}</div>
+      {% else %}<div class="sub">Комментарий не написан.</div>{% endif %}
+      <div class="mono sub fp-machine">
+        {% if r.source == 'match' %}
+          машина: {{ r.machine.get('status', '') }} ·
+          спец. {{ r.machine.get('spec_qty')|num }} ·
+          планы {{ r.machine.get('plan_qty')|num }}
+          {%- if r.machine.get('schema_qty') %} · схемы {{ r.machine.get('schema_qty')|num }}{% endif %}
+          {%- if r.machine.get('plan_pages') %} · листы {{ r.machine.get('plan_pages')[:8]|join(', ') }}{% endif %}
+        {% else %}
+          машина: {{ r.machine.get('text', '')|truncate(160, true) }}
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+  <div class="disclaimer">Выгрузка JSON содержит машинный вывод целиком —
+    количества, статусы, листы и причины отбора в план проверки, — снятый
+    в момент решения эксперта. Пересверка его уже не изменит.</div>
+{% endif %}
+</div>
+{% endblock %}

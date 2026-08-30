@@ -140,6 +140,7 @@ def context(session, doc, q='', flt=None):
     for i in shown:
         i.level_class = LEVELS.get(i.level, '')
         i.status_label = status_label(i.status)
+        i.fp_key = remark_service.match_key(i)
     return {
         'doc': doc, 'run': run, 'busy': busy, 'cols': columns(rows),
         'error': (doc.match_stats or {}).get('error', ''),

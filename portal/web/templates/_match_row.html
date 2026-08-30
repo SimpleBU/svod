@@ -40,9 +40,8 @@
            title="показать марку на листе">на листе</a>
       {% endif %}
       <div class="row-act">
-        <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"
-                hx-vals='{"status": "dismissed", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
-                hx-swap="outerHTML">ложная тревога</button>
+        <a class="link" title="снять с комментарием — почему это не расхождение"
+           href="/projects/{{ project.id }}?tab=intake&doc={{ i.document_id }}&f={{ i.fp_key|urlencode }}&fp=1">ложная тревога</a>
       </div>
     {% endif %}
   </div></td>

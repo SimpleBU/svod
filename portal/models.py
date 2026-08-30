@@ -430,9 +430,52 @@ class Remark(Base, TimestampMixin):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class AlgoFeedback(Base, TimestampMixin):
+    """Ложное срабатывание: что машина посчитала расхождением, а эксперт — нет.
+
+    Отдельная таблица, а не поле в `remark`, по трём причинам. Во-первых,
+    это обратная связь алгоритму, а не замечание бюро: в письмо она не
+    попадает никогда. Во-вторых, снимок машинного вывода нужно сохранить
+    в момент решения — пересверка переписывает `match_item` целиком, и
+    завтра доказательства «на чём именно машина ошиблась» уже не будет.
+    В-третьих, выгружать её надо пачкой по всем объектам, а не по одному.
+
+    `machine` — что заявила машина (марка, количества, статус, листы),
+    `context` — где это было (шифр тома, раздел, изменение). Оба поля
+    json-ом: разбирать их будет анализ, а не запросы портала.
+    """
+    __tablename__ = 'algo_feedback'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey('org.id', ondelete='CASCADE'), index=True)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey('project.id', ondelete='SET NULL'), index=True)
+    submission_id: Mapped[int | None] = mapped_column(Integer)
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey('document.id', ondelete='SET NULL'), index=True)
+    # match | passport — какая проверка ошиблась
+    source: Mapped[str] = mapped_column(String(10), default='match', index=True)
+    # ключ находки: тот же, что у замечания, — по нему решение переживает прогон
+    key: Mapped[str] = mapped_column(String(80), index=True)
+    # код проверки паспорта или статус сверки — по нему группируется анализ
+    code: Mapped[str] = mapped_column(String(80), default='', index=True)
+    subject: Mapped[str] = mapped_column(String(300), default='')
+    # причина из справочника: без неё сотня комментариев не складывается
+    # в статистику, а с ней видно, какой из алгоритмов чинить первым
+    reason: Mapped[str] = mapped_column(String(40), default='other', index=True)
+    comment: Mapped[str] = mapped_column(Text, default='')
+    machine: Mapped[dict] = mapped_column(Json, default=dict)
+    context: Mapped[dict] = mapped_column(Json, default=dict)
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey('app_user.id', ondelete='SET NULL'))
+    # снято решение обратно — запись остаётся, но из выгрузки уходит
+    withdrawn: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+
+
 Index('ix_spec_item_doc_mark', SpecItem.document_id, SpecItem.canon_mark)
 Index('ix_sheet_doc_page', Sheet.document_id, Sheet.page)
 Index('ix_check_item_plan_cls', CheckItem.plan_id, CheckItem.cls)
 Index('ix_check_rule_project_key', CheckRule.project_id, CheckRule.key, unique=True)
 Index('ix_match_item_doc_level', MatchItem.document_id, MatchItem.level)
 Index('ix_remark_doc_key', Remark.document_id, Remark.key, unique=True)
+Index('ix_algo_feedback_doc_key', AlgoFeedback.document_id, AlgoFeedback.key,
+      unique=True)

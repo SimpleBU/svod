@@ -7,7 +7,10 @@
     <h1>Объекты строительства</h1>
     <div class="sub">{{ rows|length }} {{ rows|length|plural('объект','объекта','объектов') }}{% if processing %} · {{ processing }} {{ processing|plural('комплект','комплекта','комплектов') }} в обработке{% endif %}</div>
   </div>
-  <a class="btn btn-primary" href="/projects/new">Новый объект</a>
+  <div class="head-act">
+    <a class="link" href="/feedback">Ложные срабатывания</a>
+    <a class="btn btn-primary" href="/projects/new">Новый объект</a>
+  </div>
 </div>
 <div class="scroll">
 {% if rows %}

@@ -19,9 +19,8 @@
       <button class="btn btn-mini" hx-post="/api/documents/{{ doc.id }}/passport-remark"
               hx-vals='{"index": {{ f.index }}, "status": "open"}'
               hx-target="#find-{{ f.index }}" hx-swap="outerHTML">В замечания</button>
-      <button class="link" hx-post="/api/documents/{{ doc.id }}/passport-remark"
-              hx-vals='{"index": {{ f.index }}, "status": "dismissed"}'
-              hx-target="#find-{{ f.index }}" hx-swap="outerHTML">не замечание</button>
+      <a class="link" title="снять с комментарием — почему это не расхождение"
+         href="/projects/{{ project.id }}?tab=intake&doc={{ doc.id }}&f={{ f.key|urlencode }}&fp=1">не замечание</a>
     {% endif %}
   </div>
 </div>

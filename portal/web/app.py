@@ -22,14 +22,16 @@ from agent.api import KIND_LABELS, KIND_ORDER
 
 from .. import auth
 from .. import checkplan as plan_service
-from .. import config, findings as finding_service, models, nomenclature
+from .. import config, feedback as feedback_service
+from .. import findings as finding_service, models, nomenclature
 from .. import passport as passport_service
 from .. import letter, match as match_service, remarks as remark_service
 from .. import sheets as sheet_service
 from ..db import SessionLocal, upgrade_schema
-from ..exporting import passport_workbook_bytes, workbook_bytes
+from ..exporting import (feedback_workbook_bytes, passport_workbook_bytes,
+                         workbook_bytes)
 from ..flags import readiness, document_flags
-from ..models import (CheckItem, CheckPlan, Document, MatchItem, Org, Project,
+from ..models import (AlgoFeedback, CheckItem, CheckPlan, Document, MatchItem, Org, Project,
                       Remark, Run, Submission, Symbol, User)
 from ..naming import parse_filename
 from ..queue import enqueue_intake, enqueue_match
@@ -134,6 +136,7 @@ def _initials(label):
 
 templates.env.filters['num'] = _num
 templates.env.filters['initials'] = _initials
+templates.env.filters['reason'] = feedback_service.reason_label
 templates.env.filters['mb'] = _mb
 templates.env.filters['plural'] = _plural
 templates.env.globals['evidence'] = remark_service.evidence_text
@@ -394,7 +397,8 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
             ctx['doc'] = picked
             if picked is not None and tab == 'intake':
                 ctx['intake'] = finding_service.context(
-                    s, picked, flt, request.query_params.get('f', ''))
+                    s, picked, flt, request.query_params.get('f', ''),
+                    fp_form=request.query_params.get('fp') == '1')
             elif picked is not None and tab == 'passport':
                 ctx['psp'] = passport_service.context(s, picked)
             elif picked is not None and tab == 'match':
@@ -428,8 +432,8 @@ def checkplan_rows(request: Request, project_id: int, doc: int = 0,
 
 @app.get('/projects/{project_id}/intake', response_class=HTMLResponse)
 def intake_panel(request: Request, project_id: int, doc: int = 0,
-                 flt: str = '', f: str = ''):
-    """Перерисовка поверхности приёмки: выбор находки и фильтры."""
+                 flt: str = '', f: str = '', fp: int = 0):
+    """Перерисовка поверхности приёмки: выбор находки, фильтры, форма снятия."""
     with db() as s:
         p, sub = _load(s, project_id)
         picked, _ = _pick_doc(sub, doc)
@@ -437,13 +441,15 @@ def intake_panel(request: Request, project_id: int, doc: int = 0,
             raise HTTPException(404, 'том не разобран')
         return templates.TemplateResponse(request, '_intake_panel.html', {
             'request': request, 'project': p, 'doc': picked,
-            'intake': finding_service.context(s, picked, flt, f)})
+            'intake': finding_service.context(s, picked, flt, f,
+                                              fp_form=bool(fp))})
 
 
 @app.post('/api/documents/{document_id}/finding', response_class=HTMLResponse)
 def finding_decide(request: Request, document_id: int, key: str = Form(...),
                    status: str = Form(...), flt: str = Form(''),
-                   next_one: str = Form('')):
+                   next_one: str = Form(''), reason: str = Form(''),
+                   comment: str = Form('')):
     """Решение эксперта по находке — одно действие на оба источника.
 
     Расхождение сверки и расхождение состава решаются одной кнопкой:
@@ -464,6 +470,12 @@ def finding_decide(request: Request, document_id: int, key: str = Form(...),
             remark_service.from_match(s, doc, found.item, status, _uid(request))
         else:
             remark_service.from_passport(s, doc, found.raw, status, _uid(request))
+        # ложное срабатывание — единственный канал, по которому алгоритм узнаёт,
+        # где он неправ: пишем его в момент решения, пока машинный вывод цел
+        if status == models.DISMISSED:
+            feedback_service.record(s, doc, found, reason, comment, _uid(request))
+        else:
+            feedback_service.withdraw(s, doc.id, key)
         # после решения открываем следующую нерешённую: эксперт идёт очередью
         after = finding_service.collect(s, doc)
         nxt = key
@@ -557,6 +569,58 @@ def passport_remark(request: Request, document_id: int, index: int = Form(...),
             request, '_finding.html',
             {'request': request, 'f': ctx, 'doc': doc,
              'project': s.get(Project, project_id)})
+
+
+def _feedback_ctx(s, project_id=0, source='', reason=''):
+    org = current_org(s)
+    items = feedback_service.rows(s, org.id, project_id or None, source, reason)
+    return {
+        'items': items,
+        'stats': feedback_service.stats(items),
+        'projects': s.scalars(select(Project).where(Project.org_id == org.id)
+                              .order_by(Project.id.desc())).all(),
+        'authors': {u.id: (u.name or u.email.split('@')[0])
+                    for u in s.scalars(select(User)).all()},
+        'reasons': feedback_service.REASONS,
+        'project_id': project_id, 'source': source, 'reason': reason,
+    }
+
+
+@app.get('/feedback', response_class=HTMLResponse)
+def feedback_page(request: Request, project: int = 0, source: str = '',
+                  reason: str = ''):
+    """Ложные срабатывания: что машина посчитала расхождением, а эксперт — нет.
+
+    Отсюда выгрузка уходит на разбор алгоритмов. Страница общая по
+    организации: одна и та же ошибка обычно повторяется на разных объектах,
+    и внутри одного её не видно.
+    """
+    with db() as s:
+        ctx = _feedback_ctx(s, project, source, reason)
+        ctx['request'] = request
+        return templates.TemplateResponse(request, 'feedback.html', ctx)
+
+
+@app.get('/feedback.json')
+def feedback_json(project: int = 0, source: str = '', reason: str = ''):
+    """Плоская выгрузка для разбора: её читает не портал, а анализ."""
+    with db() as s:
+        ctx = _feedback_ctx(s, project, source, reason)
+        data = feedback_service.payload(ctx['items'], ctx['authors'])
+    name = f'svod-false-positives-{datetime.now():%Y-%m-%d}.json'
+    return JSONResponse(data, headers={
+        'Content-Disposition': f'attachment; filename="{name}"'})
+
+
+@app.get('/feedback.xlsx')
+def feedback_xlsx(project: int = 0, source: str = '', reason: str = ''):
+    with db() as s:
+        ctx = _feedback_ctx(s, project, source, reason)
+        data = feedback_workbook_bytes(ctx['items'], ctx['authors'], ctx['stats'])
+    name = f'svod-false-positives-{datetime.now():%Y-%m-%d}.xlsx'
+    return Response(data, media_type=(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+        headers={'Content-Disposition': f'attachment; filename="{name}"'})
 
 
 @app.get('/projects/{project_id}/letter', response_class=HTMLResponse)

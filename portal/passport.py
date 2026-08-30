@@ -52,6 +52,7 @@ def context(session, doc: Document):
     # лежат json-ом рядом с томом, id у них нет
     known = remark_service.by_key(session, doc.id)
     findings = [dict(f, index=n, level_class=LEVELS.get(f.get('level'), ''),
+                     key=remark_service.passport_key(f),
                      remark=known.get(remark_service.passport_key(f)))
                 for n, f in enumerate(doc.findings or [])]
     gaps = {n for f in findings if f.get('code') == 'sheet_gap'

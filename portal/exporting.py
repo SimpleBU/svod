@@ -340,3 +340,40 @@ def passport_workbook_bytes(project, submission, doc, psp, plan, users=None,
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def feedback_workbook_bytes(items, authors=None, stats=None):
+    """Ложные срабатывания одной книгой: сводка и сами записи.
+
+    Лист «Сводка» первым: разбирать сотню строк начинают не с них, а с
+    вопроса «какой алгоритм ошибается чаще». Excel — чтобы посмотреть
+    глазами; для анализа рядом лежит та же выгрузка json.
+    """
+    from . import feedback as fb
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    ws = _sheet(wb, 'Сводка', ('Показатель', 'Значение'), (46, 14))
+    _row(ws, ('Всего ложных срабатываний', (stats or {}).get('total', len(items))))
+    _row(ws, ('Из них сверка с чертежами', (stats or {}).get('match', 0)))
+    _row(ws, ('Из них паспорт тома', (stats or {}).get('passport', 0)))
+    _row(ws, ('', ''))
+    _text(ws, ws.max_row + 1, 1, 'По причинам', bold=True)
+    for code, n in (stats or {}).get('by_reason', ()):
+        _row(ws, (fb.reason_label(code), n))
+    _row(ws, ('', ''))
+    _text(ws, ws.max_row + 1, 1, 'По проверкам', bold=True)
+    for code, n in (stats or {}).get('by_code', ()):
+        _row(ws, (code, n))
+
+    headers = tuple(h for h, _ in fb.SHEET_COLUMNS)
+    widths = tuple(w for _, w in fb.SHEET_COLUMNS)
+    ws = _sheet(wb, 'Ложные срабатывания', headers, widths)
+    wrap = (6, 7, 12, 13)
+    for row in fb.sheet_rows(items, authors):
+        _row(ws, row, wrap=wrap)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

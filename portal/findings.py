@@ -13,6 +13,7 @@
 from dataclasses import dataclass, field
 
 from . import checkplan as plan_service
+from . import feedback as feedback_service
 from . import match as match_service, remarks as remark_service
 from .models import Remark
 
@@ -33,6 +34,8 @@ class Finding:
     remark: Remark | None = None
     item: object = None         # MatchItem, если находка из сверки
     in_plan: bool = False       # позиция отобрана экспертом в план проверки
+    # запись о ложном срабатывании: почему эксперт снял находку
+    fp: object = None
     raw: dict | None = None     # расхождение паспорта как есть
     # почему позиция вообще попала в проверку — из плана проверки, чтобы
     # эксперт не ходил за основанием на соседнюю вкладку
@@ -75,6 +78,7 @@ def _plan_by_key(session, doc):
 def collect(session, doc):
     """Находки одного тома: сверка + паспорт, уже с решениями эксперта."""
     known = remark_service.by_key(session, doc.id)
+    fps = feedback_service.by_key(session, doc.id)
     plan = _plan_by_key(session, doc)
     out = []
 
@@ -99,7 +103,7 @@ def collect(session, doc):
             document_id=doc.id,
             pages=list(i.plan_pages or []) + list(i.schema_pages or []),
             remark=known.get(key), item=i, in_plan=bool(i.in_plan),
-            reasons=reasons, quote=quote))
+            fp=fps.get(key), reasons=reasons, quote=quote))
 
     for n, f in enumerate(doc.findings or []):
         key = remark_service.passport_key(f)
@@ -108,7 +112,8 @@ def collect(session, doc):
             title=remark_service.PASSPORT_TITLES.get(f.get('code', ''), 'Расхождение состава'),
             summary=f.get('text', ''), document_id=doc.id,
             pages=list(f.get('sheets') or []),
-            remark=known.get(key), raw=dict(f, index=n), in_plan=True))
+            remark=known.get(key), raw=dict(f, index=n), in_plan=True,
+            fp=fps.get(key)))
 
     # Очередь работы: сначала нерешённое, внутри — то, что эксперт сам отобрал
     # в план проверки, потом уровень, и только потом алфавит. Без второго
@@ -176,7 +181,7 @@ def proposed_text(finding):
     return ''
 
 
-def context(session, doc, flt='', key=''):
+def context(session, doc, flt='', key='', fp_form=False):
     """Всё, что показывает вкладка «Приёмка» по одному тому."""
     rows = collect(session, doc)
     shown = filtered(rows, flt)
@@ -190,6 +195,9 @@ def context(session, doc, flt='', key=''):
         'doc': doc, 'rows': rows, 'shown': shown, 'groups': groups,
         'current': current, 'flt': flt,
         'counts': {k: len(filtered(rows, k)) for k in FILTERS},
+        'fp_form': bool(fp_form),
+        'fp_reasons': (feedback_service.reasons_for(current.source)
+                       if current is not None else []),
         'stats': stats(rows), 'filters': FILTERS,
         'text': proposed_text(current) if current is not None else '',
         'position': (shown.index(current) + 1) if current in shown else 0,

@@ -185,6 +185,8 @@ def run(c, project_id, doc_id):
         ('фрагмент таблицы плана', f'/projects/{project_id}/checkplan?doc={doc_id}'),
         ('фрагмент панели сверки', f'/projects/{project_id}/match?doc={doc_id}'),
         ('фрагмент номенклатуры', f'/projects/{project_id}/nomenclature'),
+        ('ложные срабатывания', '/feedback'),
+        ('ложные срабатывания, фильтр по сверке', '/feedback?source=match'),
         ('предпросмотр письма бюро',
          f'/projects/{project_id}/letter?doc={doc_id}&scope=doc'),
         ('новый объект', '/projects/new'),
@@ -220,9 +222,32 @@ def run(c, project_id, doc_id):
     r = c.post(f'/api/documents/{doc_id}/finding',
                data={'key': key, 'status': 'open', 'flt': '', 'next_one': '1'})
     check(r.status_code == 200 and 'intake' in r.text, 'решение по находке в приёмке')
+    r = c.get(f'/projects/{project_id}?tab=intake&doc={doc_id}&f={key}&fp=1')
+    check(r.status_code == 200 and 'Почему это не расхождение' in r.text,
+          'форма ложного срабатывания открывается')
     r = c.post(f'/api/documents/{doc_id}/finding',
-               data={'key': key, 'status': 'dismissed', 'flt': ''})
+               data={'key': key, 'status': 'dismissed', 'flt': '',
+                     'reason': 'other_name',
+                     'comment': 'на плане подписано без индекса R3'})
     check(r.status_code == 200, 'снятие находки как ложной тревоги')
+
+    from .models import AlgoFeedback
+    with SessionLocal() as s2:
+        fb = s2.scalars(select(AlgoFeedback)).all()
+    check(len(fb) == 1 and fb[0].reason == 'other_name'
+          and 'R3' in fb[0].comment, 'ложное срабатывание записано с причиной')
+    check(bool(fb) and fb[0].machine.get('status'),
+          'машинный вывод сохранён снимком')
+    r = c.get('/feedback.json')
+    check(r.status_code == 200 and r.json()['count'] == 1
+          and r.json()['items'][0]['comment'], 'выгрузка json содержит комментарий')
+    r = c.get('/feedback.xlsx')
+    check(r.status_code == 200 and len(r.content) > 4000, 'выгрузка xlsx собирается')
+    r = c.post(f'/api/documents/{doc_id}/finding',
+               data={'key': key, 'status': 'open', 'flt': ''})
+    check(r.status_code == 200, 'возврат находки в работу')
+    r = c.get('/feedback.json')
+    check(r.json()['count'] == 0, 'возвращённая находка уходит из выгрузки')
 
     r = c.get(f'/projects/{project_id}/letter.docx?doc={doc_id}&scope=doc')
     check(r.status_code in (200, 404), f'письмо бюро ({r.status_code})')

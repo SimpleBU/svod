@@ -629,3 +629,20 @@ tr.cur > td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
 .letter-vol { font-size: 13px; font-weight: 600; margin: 18px 0 0; }
 .letter-tbl { width: 100%; min-width: 0; }
 .letter-sign { margin-top: 24px; display: flex; flex-direction: column; gap: 4px; }
+
+/* --- ложные срабатывания: обратная связь алгоритмам */
+.fp-field { display: flex; flex-direction: column; gap: 5px; }
+.fp-field .sel { width: 100%; }
+.fp-card { padding: 9px 10px; background: var(--panel); border: 1px solid var(--line);
+           border-left: 2px solid var(--y); border-radius: 3px;
+           display: flex; flex-direction: column; gap: 6px; }
+.fp-comment { line-height: 1.55; white-space: pre-wrap; }
+.fps { display: flex; flex-direction: column; gap: 10px; padding: 18px 28px 40px; }
+.fp-row { border: 1px solid var(--line); border-left: 2px solid var(--y);
+          background: var(--panel); border-radius: 4px; padding: 12px 16px;
+          display: flex; flex-direction: column; gap: 8px; }
+.fp-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fp-subject { font-weight: 500; }
+.fp-row-meta { margin-left: auto; }
+.fp-machine { font-size: 11px; color: var(--fg-5); }
+.fp-link { display: inline-block; text-decoration: underline dotted; }

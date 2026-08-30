@@ -22,6 +22,7 @@
              href="?tab=intake&doc={{ doc.id }}&flt={{ key }}">{{ f[0] }}{% if n %} {{ n }}{% endif %}</a>
         {% endfor %}
       </div>
+      <a class="sub fp-link" href="/feedback?project={{ project.id }}">Ложные срабатывания и выгрузка</a>
     </div>
 
     <div class="flow-list">
@@ -53,8 +54,11 @@
     <div class="proof-head">
       <div class="crumbs-line">
         <span class="{{ 'mono' if f.source == 'match' }}" style="font-size:16px;font-weight:500">{{ f.title }}</span>
+        {# у сверки в шапке стоит статус, у паспорта — уровень: там сам текст
+           расхождения идёт ниже и в заголовке ломал строку #}
         <span class="state s-{{ 'bad' if f.level == 'red' else 'warn' }}"><span class="dot"></span>{{
-          f.summary.split(' · ')[0] }}</span>
+          f.summary.split(' · ')[0] if f.source == 'match'
+          else ('критично' if f.level == 'red' else 'на усмотрение') }}</span>
       </div>
       <span class="sub num">{{ intake.position }} из {{ intake.shown|length }}</span>
     </div>
@@ -110,22 +114,65 @@
 
   <aside class="verdict-pane">
     <div class="upper">Решение эксперта</div>
-    {% if f.decided %}
+
+    {% if intake.fp_form %}
+      {# Ложное срабатывание — это обратная связь алгоритму, а не отписка:
+         причина из справочника складывается в статистику, комментарий
+         объясняет, что именно машина поняла неправильно. #}
+      <form class="verdict-form" hx-post="/api/documents/{{ doc.id }}/finding"
+            hx-target="#intake" hx-swap="outerHTML">
+        <input type="hidden" name="key" value="{{ f.key }}">
+        <input type="hidden" name="flt" value="{{ intake.flt }}">
+        <input type="hidden" name="status" value="dismissed">
+        <label class="fp-field">
+          <span class="upper">Почему это не расхождение</span>
+          <select name="reason" class="sel">
+            {% for code, label in intake.fp_reasons %}
+              <option value="{{ code }}" {{ 'selected' if f.fp and f.fp.reason == code }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="fp-field">
+          <span class="upper">Что машина поняла неправильно</span>
+          <textarea name="comment" rows="6" autofocus
+                    placeholder="Например: марка на плане подписана как «РМ-1С» без индекса R3, поэтому не нашлась">{{ f.fp.comment if f.fp else '' }}</textarea>
+        </label>
+        <div class="sub">Комментарий не уходит бюро. Он попадает в выгрузку
+          ложных срабатываний — по ней правятся алгоритмы сверки и разбора.</div>
+        <button class="btn btn-primary" type="submit">Снять как ложную тревогу</button>
+        <a class="link" hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}&flt={{ intake.flt }}&f={{ f.key|urlencode }}"
+           hx-target="#intake" hx-swap="outerHTML" href="#">отмена</a>
+      </form>
+
+    {% elif f.decided %}
       <div class="decided-note">
         {% if f.verdict == 'dismissed' %}Снято как ложная тревога.{% else %}Заведено замечание.{% endif %}
       </div>
+      {% if f.verdict == 'dismissed' and f.fp %}
+        <div class="fp-card">
+          <div class="upper">{{ f.fp.reason|reason }}</div>
+          {% if f.fp.comment %}<div class="fp-comment">{{ f.fp.comment }}</div>
+          {% else %}<div class="sub">Комментарий не написан — без него разбирать
+            это срабатывание будет нечем.</div>{% endif %}
+          <a class="link" hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}&flt={{ intake.flt }}&f={{ f.key|urlencode }}&fp=1"
+             hx-target="#intake" hx-swap="outerHTML" href="#">поправить причину и комментарий</a>
+        </div>
+      {% endif %}
       <form hx-post="/api/documents/{{ doc.id }}/finding" hx-target="#intake" hx-swap="outerHTML">
         <input type="hidden" name="key" value="{{ f.key }}">
         <input type="hidden" name="flt" value="{{ intake.flt }}">
         <input type="hidden" name="status" value="{{ 'open' if f.verdict == 'dismissed' else 'dismissed' }}">
         <button class="btn" type="submit">{{ 'Вернуть в замечания' if f.verdict == 'dismissed' else 'Снять как ложную тревогу' }}</button>
       </form>
-      <div class="upper" style="margin-top:14px">Формулировка для бюро</div>
-      <form hx-post="/api/remarks/{{ f.remark.id }}" hx-target="#intake" hx-swap="none">
-        <textarea name="text" rows="7">{{ f.remark.text }}</textarea>
-        <button class="btn btn-mini" type="submit" style="margin-top:8px">Сохранить формулировку</button>
-      </form>
-      <a class="link" href="?tab=remarks&doc={{ doc.id }}">Открыть в замечаниях</a>
+      {% if f.verdict != 'dismissed' %}
+        <div class="upper" style="margin-top:14px">Формулировка для бюро</div>
+        <form hx-post="/api/remarks/{{ f.remark.id }}" hx-target="#intake" hx-swap="none">
+          <textarea name="text" rows="7">{{ f.remark.text }}</textarea>
+          <button class="btn btn-mini" type="submit" style="margin-top:8px">Сохранить формулировку</button>
+        </form>
+        <a class="link" href="?tab=remarks&doc={{ doc.id }}">Открыть в замечаниях</a>
+      {% endif %}
+
     {% else %}
       <form hx-post="/api/documents/{{ doc.id }}/finding" hx-target="#intake" hx-swap="outerHTML"
             class="verdict-form">
@@ -138,12 +185,8 @@
         <button class="btn btn-primary" type="submit" name="status" value="open">
           Завести замечание</button>
       </form>
-      <form hx-post="/api/documents/{{ doc.id }}/finding" hx-target="#intake" hx-swap="outerHTML">
-        <input type="hidden" name="key" value="{{ f.key }}">
-        <input type="hidden" name="flt" value="{{ intake.flt }}">
-        <input type="hidden" name="next_one" value="1">
-        <button class="btn" type="submit" name="status" value="dismissed">Ложная тревога</button>
-      </form>
+      <a class="btn" hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}&flt={{ intake.flt }}&f={{ f.key|urlencode }}&fp=1"
+         hx-target="#intake" hx-swap="outerHTML" href="#" style="text-align:center">Ложная тревога</a>
     {% endif %}
 
     <div class="verdict-foot">
