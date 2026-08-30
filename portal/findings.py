@@ -32,6 +32,7 @@ class Finding:
     pages: list = field(default_factory=list)
     remark: Remark | None = None
     item: object = None         # MatchItem, если находка из сверки
+    in_plan: bool = False       # позиция отобрана экспертом в план проверки
     raw: dict | None = None     # расхождение паспорта как есть
     # почему позиция вообще попала в проверку — из плана проверки, чтобы
     # эксперт не ходил за основанием на соседнюю вкладку
@@ -97,7 +98,8 @@ def collect(session, doc):
             summary=match_service.status_label(i.status) + ' · ' + _match_summary(i),
             document_id=doc.id,
             pages=list(i.plan_pages or []) + list(i.schema_pages or []),
-            remark=known.get(key), item=i, reasons=reasons, quote=quote))
+            remark=known.get(key), item=i, in_plan=bool(i.in_plan),
+            reasons=reasons, quote=quote))
 
     for n, f in enumerate(doc.findings or []):
         key = remark_service.passport_key(f)
@@ -106,10 +108,14 @@ def collect(session, doc):
             title=remark_service.PASSPORT_TITLES.get(f.get('code', ''), 'Расхождение состава'),
             summary=f.get('text', ''), document_id=doc.id,
             pages=list(f.get('sheets') or []),
-            remark=known.get(key), raw=dict(f, index=n)))
+            remark=known.get(key), raw=dict(f, index=n), in_plan=True))
 
-    # без решения — вперёд: это и есть очередь работы
-    out.sort(key=lambda x: (x.decided, LEVEL_ORDER.get(x.level, 3), x.title))
+    # Очередь работы: сначала нерешённое, внутри — то, что эксперт сам отобрал
+    # в план проверки, потом уровень, и только потом алфавит. Без второго
+    # ключа наверх всплывал крепёж: «нет на чертежах» у аккумулятора и у
+    # головного прибора одинаково красное, а разбирать их одинаково — нет.
+    out.sort(key=lambda x: (x.decided, not x.in_plan,
+                            LEVEL_ORDER.get(x.level, 3), x.title))
     return out
 
 
@@ -142,6 +148,7 @@ def submission_stats(session, documents):
 
 FILTERS = {
     'open': ('без решения', lambda f: not f.decided),
+    'plan': ('по плану проверки', lambda f: f.in_plan and not f.decided),
     'red': ('критично', lambda f: f.level == 'red' and not f.decided),
     'amber': ('на усмотрение', lambda f: f.level == 'amber' and not f.decided),
     'decided': ('решённые', lambda f: f.decided),
@@ -182,6 +189,7 @@ def context(session, doc, flt='', key=''):
     return {
         'doc': doc, 'rows': rows, 'shown': shown, 'groups': groups,
         'current': current, 'flt': flt,
+        'counts': {k: len(filtered(rows, k)) for k in FILTERS},
         'stats': stats(rows), 'filters': FILTERS,
         'text': proposed_text(current) if current is not None else '',
         'position': (shown.index(current) + 1) if current in shown else 0,

@@ -15,9 +15,7 @@
            hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}"
            hx-target="#intake" hx-swap="outerHTML" href="?tab=intake&doc={{ doc.id }}">все {{ intake.stats.total }}</a>
         {% for key, f in intake.filters.items() %}
-          {% set n = intake.rows|selectattr('level','equalto','red')|list|length if key == 'red'
-                     else (intake.rows|selectattr('level','equalto','amber')|list|length if key == 'amber'
-                     else (intake.stats.open if key == 'open' else intake.stats.decided)) %}
+          {% set n = intake.counts.get(key, 0) %}
           <a class="chip {{ 'on' if intake.flt == key }} chip-{{ key }}"
              hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}&flt={{ key }}"
              hx-target="#intake" hx-swap="outerHTML"
