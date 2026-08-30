@@ -52,6 +52,18 @@
       <a href="/projects/{{ project.id }}?tab=match{{ '&doc=' ~ doc.id if doc }}" class="{{ 'active' if tab == 'match' }}">Сверка с чертежами</a>
       <a href="/projects/{{ project.id }}?tab=remarks{{ '&doc=' ~ doc.id if doc }}" class="{{ 'active' if tab == 'remarks' }}">Замечания{% if open_remarks %} <span class="sub">{{ open_remarks }}</span>{% endif %}</a>
     </div>
+    <div class="tabsline-right">
+    {% if tab in doc_tabs and doc %}
+      <a class="sheetlink" href="/projects/{{ project.id }}?tab=sheet&doc={{ doc.id }}&from={{ tab }}"
+         title="Листы тома с метками замечаний">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="2" y="2.5" width="12" height="11" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M2 6h12" stroke="currentColor" stroke-width="1.2"/>
+          <circle cx="10.5" cy="10" r="1.6" fill="currentColor"/>
+        </svg>
+        Листы тома
+      </a>
+    {% endif %}
     {# выбор тома жил отдельной полосой на всю ширину и при одном томе
        показывал одну неактивную кнопку #}
     {% if tab in doc_tabs and docs and docs|length > 1 %}
@@ -68,6 +80,7 @@
       <div class="docpick"><span class="upper">Том</span>
         <span class="mono sub">{{ doc.cipher or doc.filename }}</span></div>
     {% endif %}
+    </div>
   </div>
 
   <div class="scroll">

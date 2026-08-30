@@ -35,10 +35,11 @@
       <button class="btn btn-mini" hx-post="/api/match-items/{{ i.id }}/remark"
               hx-vals='{"status": "open", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
               hx-swap="outerHTML">В замечания</button>
+      {% if i.plan_pages or i.schema_pages %}
+        <a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ i.document_id }}&item={{ i.id }}&from=match"
+           title="показать марку на листе">на листе</a>
+      {% endif %}
       <div class="row-act">
-        {% if i.plan_pages or i.schema_pages %}
-          <a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ i.document_id }}&item={{ i.id }}&from=match">на листе</a>
-        {% endif %}
         <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"
                 hx-vals='{"status": "dismissed", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
                 hx-swap="outerHTML">ложная тревога</button>

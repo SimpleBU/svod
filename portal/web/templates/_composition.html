@@ -89,6 +89,16 @@
       </div>
       <div class="vol-flags">
         {% for f in it.flags %}<div class="flag {{ f.level }}"><i></i>{{ f.label }}</div>{% endfor %}
+        {% if d.status == 'done' %}
+          <a class="sheetlink" href="/projects/{{ project.id }}?tab=sheet&doc={{ d.id }}&from=match">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2" y="2.5" width="12" height="11" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M2 6h12" stroke="currentColor" stroke-width="1.2"/>
+              <circle cx="10.5" cy="10" r="1.6" fill="currentColor"/>
+            </svg>
+            Листы тома
+          </a>
+        {% endif %}
       </div>
     </div>
   {% endfor %}
