@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Письмо бюро · {{ project.name }}{% endblock %}
+{% block main %}
+<div class="modebar">
+  <a class="back" href="/projects/{{ project.id }}?tab=remarks{{ '&doc=' ~ doc.id if doc }}{{ '&scope=all' if scope == 'all' }}">
+    <svg width="14" height="12" viewBox="0 0 14 12" fill="none" aria-hidden="true">
+      <path d="M6 1L1 6l5 5M1 6h12" stroke="currentColor" stroke-width="1.3"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    к замечаниям
+  </a>
+  <div class="head-act">
+    <span class="sub">Так письмо увидит бюро</span>
+    {% if total %}
+      <a class="btn btn-primary" href="/projects/{{ project.id }}/letter.docx?doc={{ doc.id if doc else 0 }}&scope={{ scope }}">Скачать docx</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="scroll">
+  {% if not total %}
+    <div class="empty">Замечаний в работе нет — письмо собирать не из чего.</div>
+  {% else %}
+  <div class="letter">
+    <div class="letter-from">{{ org_name }}<br>{{ date }}</div>
+    {% if project.bureau %}<div class="letter-to"><b>В {{ project.bureau }}</b></div>{% endif %}
+    <h1 class="letter-title">Замечания по результатам внутренней экспертизы рабочей документации</h1>
+    <div class="letter-head">
+      <div>Объект: {{ project.name }}</div>
+      {% if project.code %}<div>Шифр: {{ project.code }}</div>{% endif %}
+      <div>Подача: {{ submission.label }}</div>
+      <div>Всего замечаний: <b>{{ total }}</b></div>
+    </div>
+
+    {% set ns = namespace(n=0) %}
+    {% for document, rows in groups %}
+      <h2 class="letter-vol">{{ document.cipher or document.filename }}{% if document.section_label or document.section %}
+        — {{ document.section_label or document.section }}{% endif %}</h2>
+      <table class="tbl letter-tbl">
+        <thead><tr>
+          <th style="width:40px">№</th><th style="width:220px">Предмет</th>
+          <th>Замечание</th><th style="width:110px">Листы</th>
+        </tr></thead>
+        <tbody>
+        {% for r in rows %}
+          {% set ns.n = ns.n + 1 %}
+          <tr>
+            <td class="num">{{ ns.n }}</td>
+            <td class="mono">{{ r.subject }}<div class="sub">{{ levels.get(r.level, '') }}</div></td>
+            <td class="prewrap">{{ r.text }}</td>
+            <td class="mono sub">{{ r.sheets|join(', ') }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+
+    <div class="letter-sign">
+      <div>Эксперт{% if author %}: {{ author }}{% endif %}</div>
+      <div class="sub">Подпись проставляется на распечатанном документе.</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

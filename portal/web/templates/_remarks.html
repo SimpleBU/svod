@@ -19,7 +19,7 @@
         <a href="?tab=remarks&doc={{ doc.id }}&scope=all" class="{{ 'active' if remarks.scope == 'all' }}">вся подача</a>
       </div>
       {% if remarks.stats.open %}
-        <a class="btn btn-primary" href="/projects/{{ project.id }}/letter.docx?doc={{ doc.id }}&scope={{ remarks.scope }}">Письмо бюро (docx)</a>
+        <a class="btn btn-primary" href="/projects/{{ project.id }}/letter?doc={{ doc.id }}&scope={{ remarks.scope }}">Письмо бюро</a>
         <form method="post" action="/api/projects/{{ project.id }}/remarks/sent">
           <input type="hidden" name="doc" value="{{ doc.id }}">
           <input type="hidden" name="scope" value="{{ remarks.scope }}">

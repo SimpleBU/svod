@@ -12,6 +12,7 @@
 """
 from dataclasses import dataclass, field
 
+from . import checkplan as plan_service
 from . import match as match_service, remarks as remark_service
 from .models import Remark
 
@@ -32,6 +33,10 @@ class Finding:
     remark: Remark | None = None
     item: object = None         # MatchItem, если находка из сверки
     raw: dict | None = None     # расхождение паспорта как есть
+    # почему позиция вообще попала в проверку — из плана проверки, чтобы
+    # эксперт не ходил за основанием на соседнюю вкладку
+    reasons: list = field(default_factory=list)
+    quote: str = ''
 
     @property
     def decided(self):
@@ -58,22 +63,41 @@ def _match_summary(i):
     return ' · '.join(p for p in parts if p)
 
 
+def _plan_by_key(session, doc):
+    """Позиции плана проверки по ключу — одним запросом, а не по строке."""
+    plan = plan_service.current_plan(session, doc.id)
+    if plan is None:
+        return {}
+    return {i.key: i for i in plan_service.items(session, plan.id)}
+
+
 def collect(session, doc):
     """Находки одного тома: сверка + паспорт, уже с решениями эксперта."""
     known = remark_service.by_key(session, doc.id)
+    plan = _plan_by_key(session, doc)
     out = []
 
     for i in match_service.items(session, doc.id):
         if i.level not in ('red', 'amber'):
             continue
         key = remark_service.match_key(i)
+        reasons, quote = [], ''
+        for k in (i.keys or []):
+            ci = plan.get(k)
+            if ci is None:
+                continue
+            for r in (ci.reasons or []):
+                if r not in reasons:
+                    reasons.append(r)
+            quote = quote or next((e.get('text') for e in (ci.evidence or [])
+                                   if e.get('kind') == 'revision' and e.get('text')), '')
         out.append(Finding(
             source='match', key=key, level=i.level,
             title=' · '.join(i.marks or []) or i.mark or '—',
             summary=match_service.status_label(i.status) + ' · ' + _match_summary(i),
             document_id=doc.id,
             pages=list(i.plan_pages or []) + list(i.schema_pages or []),
-            remark=known.get(key), item=i))
+            remark=known.get(key), item=i, reasons=reasons, quote=quote))
 
     for n, f in enumerate(doc.findings or []):
         key = remark_service.passport_key(f)
@@ -115,3 +139,51 @@ def submission_stats(session, documents):
     total['percent'] = (round(total['decided'] * 100 / total['total'])
                         if total['total'] else 0)
     return total
+
+FILTERS = {
+    'open': ('без решения', lambda f: not f.decided),
+    'red': ('критично', lambda f: f.level == 'red' and not f.decided),
+    'amber': ('на усмотрение', lambda f: f.level == 'amber' and not f.decided),
+    'decided': ('решённые', lambda f: f.decided),
+}
+
+
+def filtered(rows, flt=''):
+    fn = FILTERS.get(flt, (None, None))[1]
+    return [f for f in rows if fn(f)] if fn else rows
+
+
+def by_key(rows, key):
+    for f in rows:
+        if f.key == key:
+            return f
+    return rows[0] if rows else None
+
+
+def proposed_text(finding):
+    """Формулировка, которую портал предлагает до решения эксперта."""
+    if finding.source == 'match' and finding.item is not None:
+        return remark_service.match_text(finding.item)
+    if finding.raw is not None:
+        return finding.raw.get('text', '')
+    return ''
+
+
+def context(session, doc, flt='', key=''):
+    """Всё, что показывает вкладка «Приёмка» по одному тому."""
+    rows = collect(session, doc)
+    shown = filtered(rows, flt)
+    current = by_key(shown, key) if shown else None
+    groups = []
+    for source in ('match', 'passport'):
+        part = [f for f in shown if f.source == source]
+        if part:
+            groups.append((SOURCE_LABELS[source], part))
+    return {
+        'doc': doc, 'rows': rows, 'shown': shown, 'groups': groups,
+        'current': current, 'flt': flt,
+        'stats': stats(rows), 'filters': FILTERS,
+        'text': proposed_text(current) if current is not None else '',
+        'position': (shown.index(current) + 1) if current in shown else 0,
+        'uncheckable': (doc.match_stats or {}).get('uncheckable', 0),
+    }

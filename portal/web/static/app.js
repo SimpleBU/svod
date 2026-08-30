@@ -279,9 +279,10 @@ document.body && document.body.addEventListener('htmx:afterSwap', () => svod.she
    ↑ ↓ (или j / k) — строка, Enter — главное действие строки,
    X — второстепенное («ложная тревога» / «снять»), / — поиск, Esc — выход. */
 svod.keys = function () {
-  const table = document.querySelector('table.mtable tbody, table.ci-tbl tbody');
+  const table = document.querySelector('table.mtable tbody, table.ci-tbl tbody, .flow-list');
   if (!table) return;
-  const rows = () => [...table.querySelectorAll('tr')].filter(r => r.offsetParent !== null);
+  const ROWS = 'tr, .flowitem';
+  const rows = () => [...table.querySelectorAll(ROWS)].filter(r => r.offsetParent !== null);
 
   const cur = () => table.querySelector('tr.cur');
   const focus = (row) => {
@@ -316,18 +317,25 @@ svod.keys = function () {
       if (e.key === 'Escape') t.blur();
       return;
     }
-    const body = document.querySelector('table.mtable tbody, table.ci-tbl tbody');
+    const body = document.querySelector('table.mtable tbody, table.ci-tbl tbody, .flow-list');
     if (!body) return;
-    const row = body.querySelector('tr.cur');
+    const row = body.querySelector('tr.cur, .flowitem.cur') || body.querySelector('.flowitem.on');
     switch (e.code) {
       case 'ArrowDown': case 'KeyJ': e.preventDefault(); move(1); break;
       case 'ArrowUp': case 'KeyK': e.preventDefault(); move(-1); break;
       case 'Enter':
         /* главное действие строки: «В замечания» в сверке, галочка в плане */
+        /* в потоке находок строка — это ссылка: Enter её открывает,
+           а решение принимается кнопкой в правой панели */
+        if (row && row.classList.contains('flowitem')) { e.preventDefault(); row.click(); break; }
         if (row && press(row, ['.btn-mini', '.chk'])) e.preventDefault();
         break;
       case 'KeyX':
         /* второстепенное: «ложная тревога» или «снять» */
+        if (document.querySelector('.verdict-form')) {
+          const alt = [...document.querySelectorAll('.verdict-pane button[value=dismissed]')][0];
+          if (alt) { e.preventDefault(); alt.click(); break; }
+        }
         if (row && press(row, ['.row-act .link', 'td.c-act .link'])) e.preventDefault();
         break;
       case 'Slash': {

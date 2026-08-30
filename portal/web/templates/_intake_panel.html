@@ -1,0 +1,165 @@
+{# Поверхность приёмки: слева поток находок, в центре доказательство,
+   справа решение. Расхождения сверки и расхождения состава лежат в одном
+   списке — для эксперта это одна и та же работа. #}
+<div id="intake" class="intake">
+
+  <div class="flow">
+    <div class="flow-head">
+      <div>
+        <b class="num" style="font-size:15px">{{ intake.stats.open }}</b>
+        <span class="sub">без решения из {{ intake.stats.total }}{% if intake.uncheckable %} ·
+          {{ intake.uncheckable }} машине не проверить{% endif %}</span>
+      </div>
+      <div class="flow-filters">
+        <a class="chip {{ 'on' if not intake.flt }}"
+           hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}"
+           hx-target="#intake" hx-swap="outerHTML" href="?tab=intake&doc={{ doc.id }}">все {{ intake.stats.total }}</a>
+        {% for key, f in intake.filters.items() %}
+          {% set n = intake.rows|selectattr('level','equalto','red')|list|length if key == 'red'
+                     else (intake.rows|selectattr('level','equalto','amber')|list|length if key == 'amber'
+                     else (intake.stats.open if key == 'open' else intake.stats.decided)) %}
+          <a class="chip {{ 'on' if intake.flt == key }} chip-{{ key }}"
+             hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}&flt={{ key }}"
+             hx-target="#intake" hx-swap="outerHTML"
+             href="?tab=intake&doc={{ doc.id }}&flt={{ key }}">{{ f[0] }}{% if n %} {{ n }}{% endif %}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="flow-list">
+      {% for label, part in intake.groups %}
+        <div class="upper flow-group">{{ label }} · {{ part|length }}</div>
+        {% for f in part %}
+          <a class="flowitem {{ 'on' if intake.current and f.key == intake.current.key }}{{ ' done' if f.decided }}"
+             hx-get="/projects/{{ project.id }}/intake?doc={{ doc.id }}&flt={{ intake.flt }}&f={{ f.key|urlencode }}"
+             hx-target="#intake" hx-swap="outerHTML"
+             href="?tab=intake&doc={{ doc.id }}&flt={{ intake.flt }}&f={{ f.key|urlencode }}">
+            <i class="dot lvl-{{ f.level }}"></i>
+            <span class="flowitem-body">
+              <span class="flowitem-title {{ 'mono' if f.source == 'match' }}">{{ f.title }}</span>
+              <span class="flowitem-sub">{{ f.summary }}</span>
+            </span>
+            {% if f.decided %}<span class="upper flowitem-verdict">{{
+              'снято' if f.verdict == 'dismissed' else 'замечание' }}</span>{% endif %}
+          </a>
+        {% endfor %}
+      {% else %}
+        <div class="empty">Под фильтр ничего не попало.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% set f = intake.current %}
+  {% if f %}
+  <div class="proof">
+    <div class="proof-head">
+      <div class="crumbs-line">
+        <span class="{{ 'mono' if f.source == 'match' }}" style="font-size:16px;font-weight:500">{{ f.title }}</span>
+        <span class="state s-{{ 'bad' if f.level == 'red' else 'warn' }}"><span class="dot"></span>{{
+          f.summary.split(' · ')[0] }}</span>
+      </div>
+      <span class="sub num">{{ intake.position }} из {{ intake.shown|length }}</span>
+    </div>
+
+    <div class="proof-body">
+      {% if f.source == 'match' and f.item %}
+        {% set i = f.item %}
+        <div style="font-size:14px">{{ i.names }}</div>
+        <div class="nums">
+          <div><b class="num">{{ i.spec_qty|num }}</b><span class="upper">по спецификации</span></div>
+          <div><b class="num" style="color:{{ 'var(--r-fg)' if not i.plan_qty else 'inherit' }}">{{ i.plan_qty|num }}</b><span class="upper">найдено на планах</span></div>
+          {% if i.schema_qty or i.schema_pages %}
+            <div><b class="num">{{ i.schema_qty|num }}</b><span class="upper">найдено на схемах</span></div>
+          {% endif %}
+          {% if i.exact_qty %}
+            <div><b class="num">{{ i.exact_qty }}</b><span class="upper">точный источник</span></div>
+          {% endif %}
+        </div>
+        {% if f.reasons or f.quote %}
+        <div class="block">
+          <div class="upper">Почему позиция в проверке</div>
+          <div class="reasons">
+            {% for r in f.reasons %}<span class="why {{ 'why-changed' if r.code == 'changed' }}">{{ r.text }}</span>{% endfor %}
+          </div>
+          {% if f.quote %}<div class="quote">«{{ f.quote }}»
+            <span class="sub mono" style="display:block;margin-top:3px">лист регистрации изменений</span></div>{% endif %}
+        </div>
+        {% endif %}
+        <div class="block">
+          <div class="upper">Где смотреть</div>
+          <div class="mono sub sheets-row">
+            {% if i.spec_pages %}<span>спецификация: {{ i.spec_pages|join(', ') }}</span>{% endif %}
+            {% if i.plan_pages %}<span>планы: {{ i.plan_pages[:12]|join(', ') }}</span>{% endif %}
+            {% if i.schema_pages %}<span>схемы: {{ i.schema_pages[:12]|join(', ') }}</span>{% endif %}
+          </div>
+          {% if f.pages %}
+            <a class="btn btn-mini" style="margin-top:8px"
+               href="/projects/{{ project.id }}?tab=sheet&doc={{ doc.id }}&item={{ i.id }}&from=intake">Показать на листе</a>
+          {% endif %}
+        </div>
+      {% else %}
+        <div style="font-size:14px;line-height:1.55;max-width:70ch">{{ f.summary }}</div>
+        {% if f.pages %}
+          <div class="block">
+            <div class="upper">Где смотреть</div>
+            <div class="mono sub">{{ 'лист' if f.pages|length == 1 else 'листы' }}
+              {% for n in f.pages %}<a href="/projects/{{ project.id }}?tab=sheet&doc={{ doc.id }}&page={{ n }}&from=intake">{{ n }}</a>{{ '' if loop.last else ', ' }}{% endfor %}</div>
+          </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <aside class="verdict-pane">
+    <div class="upper">Решение эксперта</div>
+    {% if f.decided %}
+      <div class="decided-note">
+        {% if f.verdict == 'dismissed' %}Снято как ложная тревога.{% else %}Заведено замечание.{% endif %}
+      </div>
+      <form hx-post="/api/documents/{{ doc.id }}/finding" hx-target="#intake" hx-swap="outerHTML">
+        <input type="hidden" name="key" value="{{ f.key }}">
+        <input type="hidden" name="flt" value="{{ intake.flt }}">
+        <input type="hidden" name="status" value="{{ 'open' if f.verdict == 'dismissed' else 'dismissed' }}">
+        <button class="btn" type="submit">{{ 'Вернуть в замечания' if f.verdict == 'dismissed' else 'Снять как ложную тревогу' }}</button>
+      </form>
+      <div class="upper" style="margin-top:14px">Формулировка для бюро</div>
+      <form hx-post="/api/remarks/{{ f.remark.id }}" hx-target="#intake" hx-swap="none">
+        <textarea name="text" rows="7">{{ f.remark.text }}</textarea>
+        <button class="btn btn-mini" type="submit" style="margin-top:8px">Сохранить формулировку</button>
+      </form>
+      <a class="link" href="?tab=remarks&doc={{ doc.id }}">Открыть в замечаниях</a>
+    {% else %}
+      <form hx-post="/api/documents/{{ doc.id }}/finding" hx-target="#intake" hx-swap="outerHTML"
+            class="verdict-form">
+        <input type="hidden" name="key" value="{{ f.key }}">
+        <input type="hidden" name="flt" value="{{ intake.flt }}">
+        <input type="hidden" name="next_one" value="1">
+        <div class="upper">Предложенная формулировка</div>
+        <div class="proposal">{{ intake.text }}</div>
+        <div class="sub">Править её можно сразу после того, как замечание заведено.</div>
+        <button class="btn btn-primary" type="submit" name="status" value="open">
+          Завести замечание</button>
+      </form>
+      <form hx-post="/api/documents/{{ doc.id }}/finding" hx-target="#intake" hx-swap="outerHTML">
+        <input type="hidden" name="key" value="{{ f.key }}">
+        <input type="hidden" name="flt" value="{{ intake.flt }}">
+        <input type="hidden" name="next_one" value="1">
+        <button class="btn" type="submit" name="status" value="dismissed">Ложная тревога</button>
+      </form>
+    {% endif %}
+
+    <div class="verdict-foot">
+      <div class="bar summary-bar"><div style="width:{{ intake.stats.percent }}%;background:var(--g)"></div></div>
+      <div class="sub">{{ intake.stats.decided }} из {{ intake.stats.total }} решено{% if intake.stats.red %} ·
+        {{ intake.stats.red }} критичных ждут{% endif %}</div>
+      <div class="keyhint">
+        <span><kbd>↑</kbd><kbd>↓</kbd> находка</span>
+        <span><kbd>Enter</kbd> замечание</span>
+        <span><kbd>X</kbd> ложная</span>
+      </div>
+    </div>
+  </aside>
+  {% else %}
+  <div class="proof"><div class="empty">Находок по этому тому нет — сверка сошлась, состав тоже.</div></div>
+  {% endif %}
+</div>

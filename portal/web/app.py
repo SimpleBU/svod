@@ -321,6 +321,12 @@ def _composition(s, project, submission):
             'project': project, 'submission': submission}
 
 
+def _composition_open(s, sub):
+    """Сколько находок ещё ждут решения — цифра у вкладки «Приёмка»."""
+    docs = [d for d in sub.documents if d.status == models.DONE]
+    return finding_service.submission_stats(s, docs)['open']
+
+
 def _parsed_docs(sub):
     """Тома, по которым уже есть что показывать."""
     return [d for d in sub.documents if d.status == models.DONE]
@@ -381,15 +387,19 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
                'q': q, 'section': section, 'flagged': flagged, 'flt': flt,
                'from': from_tab,
-               'open_remarks': remark_service.open_count(s, _parsed_docs(sub))}
+               'open_remarks': remark_service.open_count(s, _parsed_docs(sub)),
+               'intake_open': _composition_open(s, sub)}
         ctx['composition'] = _composition(s, p, sub)
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
-        elif tab in ('passport', 'checkplan', 'match', 'remarks', 'sheet'):
+        elif tab in ('intake', 'passport', 'checkplan', 'match', 'remarks', 'sheet'):
             picked, docs = _pick_doc(sub, doc)
             ctx['docs'] = docs
             ctx['doc'] = picked
-            if picked is not None and tab == 'passport':
+            if picked is not None and tab == 'intake':
+                ctx['intake'] = finding_service.context(
+                    s, picked, flt, request.query_params.get('f', ''))
+            elif picked is not None and tab == 'passport':
                 ctx['psp'] = passport_service.context(s, picked)
             elif picked is not None and tab == 'match':
                 ctx['match'] = match_service.context(s, picked, q,
@@ -418,6 +428,56 @@ def checkplan_rows(request: Request, project_id: int, doc: int = 0,
             raise HTTPException(404, 'том не разобран')
         return templates.TemplateResponse(request, '_checkplan_table.html', {
             'request': request, 'project': p, 'plan': _plan_ctx(s, picked, q, flt)})
+
+
+@app.get('/projects/{project_id}/intake', response_class=HTMLResponse)
+def intake_panel(request: Request, project_id: int, doc: int = 0,
+                 flt: str = '', f: str = ''):
+    """Перерисовка поверхности приёмки: выбор находки и фильтры."""
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        if picked is None:
+            raise HTTPException(404, 'том не разобран')
+        return templates.TemplateResponse(request, '_intake_panel.html', {
+            'request': request, 'project': p, 'doc': picked,
+            'intake': finding_service.context(s, picked, flt, f)})
+
+
+@app.post('/api/documents/{document_id}/finding', response_class=HTMLResponse)
+def finding_decide(request: Request, document_id: int, key: str = Form(...),
+                   status: str = Form(...), flt: str = Form(''),
+                   next_one: str = Form('')):
+    """Решение эксперта по находке — одно действие на оба источника.
+
+    Расхождение сверки и расхождение состава решаются одной кнопкой:
+    для эксперта это одна и та же работа, а что их считают разные модули —
+    его не касается.
+    """
+    if status not in (models.OPEN, models.DISMISSED, models.SENT):
+        raise HTTPException(400, 'неизвестное решение')
+    with db() as s:
+        doc = s.get(Document, document_id)
+        if doc is None:
+            raise HTTPException(404, 'том не найден')
+        rows = finding_service.collect(s, doc)
+        found = next((f for f in rows if f.key == key), None)
+        if found is None:
+            raise HTTPException(404, 'находка не найдена')
+        if found.source == 'match':
+            remark_service.from_match(s, doc, found.item, status, _uid(request))
+        else:
+            remark_service.from_passport(s, doc, found.raw, status, _uid(request))
+        # после решения открываем следующую нерешённую: эксперт идёт очередью
+        after = finding_service.collect(s, doc)
+        nxt = key
+        if next_one:
+            rest = [x for x in finding_service.filtered(after, flt) if not x.decided]
+            nxt = rest[0].key if rest else ''
+        project_id, _ = plan_service.project_of(s, doc)
+        return templates.TemplateResponse(request, '_intake_panel.html', {
+            'request': request, 'project': s.get(Project, project_id), 'doc': doc,
+            'intake': finding_service.context(s, doc, flt, nxt)})
 
 
 @app.get('/projects/{project_id}/match', response_class=HTMLResponse)
@@ -501,6 +561,34 @@ def passport_remark(request: Request, document_id: int, index: int = Form(...),
             request, '_finding.html',
             {'request': request, 'f': ctx, 'doc': doc,
              'project': s.get(Project, project_id)})
+
+
+@app.get('/projects/{project_id}/letter', response_class=HTMLResponse)
+def letter_preview(request: Request, project_id: int, doc: int = 0,
+                   scope: str = 'all'):
+    """Предпросмотр письма бюро.
+
+    Это единственный документ, который видит внешняя сторона, а уходил он
+    вслепую: файл просто скачивался. Здесь видно ровно то, что будет
+    в docx, — до того, как письмо отправят.
+    """
+    with db() as s:
+        p, sub = _load(s, project_id)
+        picked, _ = _pick_doc(sub, doc)
+        docs = _parsed_docs(sub) if scope == 'all' else (
+            [picked] if picked is not None else [])
+        groups = remark_service.for_letter(s, docs)
+        total = sum(len(rs) for _, rs in groups)
+        authors = {r.author_id for _, rs in groups for r in rs if r.author_id}
+        author = ''
+        if len(authors) == 1:
+            u = s.get(User, authors.pop())
+            author = u.label if u else ''
+        return templates.TemplateResponse(request, 'letter.html', {
+            'request': request, 'project': p, 'submission': sub, 'doc': picked,
+            'groups': groups, 'total': total, 'author': author, 'scope': scope,
+            'org_name': config.ORG_NAME, 'date': letter._date(),
+            'levels': letter.LEVEL_WORDS})
 
 
 @app.get('/projects/{project_id}/letter.docx')

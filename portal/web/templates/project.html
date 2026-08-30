@@ -2,7 +2,7 @@
 {% set active_nav = 'projects' %}
 {% block title %}{{ project.name }} · {{ APP_NAME }}{% endblock %}
 {% block main %}
-{% set doc_tabs = ('passport', 'checkplan', 'match', 'remarks') %}
+{% set doc_tabs = ('intake', 'passport', 'checkplan', 'match', 'remarks') %}
 
 {% if tab == 'sheet' %}
   {# Лист — не раздел, а режим: сюда приходят из сверки или из замечания
@@ -44,7 +44,8 @@
 
   <div class="tabsline">
     <div class="tabs">
-      <a href="/projects/{{ project.id }}?tab=composition" class="{{ 'active' if tab not in ('nomenclature', 'passport', 'checkplan', 'match', 'remarks') }}">Состав комплекта</a>
+      <a href="/projects/{{ project.id }}?tab=intake{{ '&doc=' ~ doc.id if doc }}" class="{{ 'active' if tab == 'intake' }}">Приёмка{% if open_remarks or intake_open %} <span class="sub">{{ intake_open or '' }}</span>{% endif %}</a>
+      <a href="/projects/{{ project.id }}?tab=composition" class="{{ 'active' if tab not in ('intake', 'nomenclature', 'passport', 'checkplan', 'match', 'remarks') }}">Состав комплекта</a>
       <a href="/projects/{{ project.id }}?tab=passport{{ '&doc=' ~ doc.id if doc }}" class="{{ 'active' if tab == 'passport' }}">Паспорт тома</a>
       <a href="/projects/{{ project.id }}?tab=nomenclature" class="{{ 'active' if tab == 'nomenclature' }}">Номенклатура</a>
       <a href="/projects/{{ project.id }}?tab=checkplan{{ '&doc=' ~ doc.id if doc }}" class="{{ 'active' if tab == 'checkplan' }}">План проверки</a>
@@ -87,7 +88,9 @@
       <div class="uploads" id="uploads" hidden></div>
     </div>
 
-    {% if tab == 'nomenclature' %}
+    {% if tab == 'intake' %}
+      {% include '_intake.html' %}
+    {% elif tab == 'nomenclature' %}
       {% include '_nomenclature.html' %}
     {% elif tab == 'passport' %}
       {% include '_passport.html' %}

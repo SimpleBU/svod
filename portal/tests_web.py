@@ -163,6 +163,10 @@ def run(c, project_id, doc_id):
 
     pages = [
         ('список объектов', f'/'),
+        ('приёмка — поток находок', f'/projects/{project_id}?tab=intake&doc={doc_id}'),
+        ('приёмка, фильтр «критично»',
+         f'/projects/{project_id}?tab=intake&doc={doc_id}&flt=red'),
+        ('фрагмент приёмки', f'/projects/{project_id}/intake?doc={doc_id}'),
         ('состав комплекта', f'/projects/{project_id}?tab=composition'),
         ('паспорт тома', f'/projects/{project_id}?tab=passport&doc={doc_id}'),
         ('номенклатура', f'/projects/{project_id}?tab=nomenclature'),
@@ -181,6 +185,8 @@ def run(c, project_id, doc_id):
         ('фрагмент таблицы плана', f'/projects/{project_id}/checkplan?doc={doc_id}'),
         ('фрагмент панели сверки', f'/projects/{project_id}/match?doc={doc_id}'),
         ('фрагмент номенклатуры', f'/projects/{project_id}/nomenclature'),
+        ('предпросмотр письма бюро',
+         f'/projects/{project_id}/letter?doc={doc_id}&scope=doc'),
         ('новый объект', '/projects/new'),
     ]
     for what, url in pages:
@@ -206,6 +212,18 @@ def run(c, project_id, doc_id):
     check(r.status_code == 200, 'замечание с расхождения паспорта')
     r = c.post(f'/api/remarks/{rid}', data={'status': 'sent'})
     check(r.status_code == 200, 'смена статуса замечания')
+    body = c.get(f'/projects/{project_id}?tab=intake&doc={doc_id}').text
+    key = ''
+    import re as _re
+    m = _re.search(r'name="key" value="([^"]+)"', body)
+    key = m.group(1) if m else ''
+    r = c.post(f'/api/documents/{doc_id}/finding',
+               data={'key': key, 'status': 'open', 'flt': '', 'next_one': '1'})
+    check(r.status_code == 200 and 'intake' in r.text, 'решение по находке в приёмке')
+    r = c.post(f'/api/documents/{doc_id}/finding',
+               data={'key': key, 'status': 'dismissed', 'flt': ''})
+    check(r.status_code == 200, 'снятие находки как ложной тревоги')
+
     r = c.get(f'/projects/{project_id}/letter.docx?doc={doc_id}&scope=doc')
     check(r.status_code in (200, 404), f'письмо бюро ({r.status_code})')
 
