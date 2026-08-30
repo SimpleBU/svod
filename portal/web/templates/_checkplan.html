@@ -3,12 +3,6 @@
 {% elif not plan.plan %}
   <div class="empty">План проверки по этому тому ещё не собран.</div>
 {% else %}
-<div class="docbar">
-  {% for d in docs %}
-    <a href="?tab=checkplan&doc={{ d.id }}" class="{{ 'active' if d.id == doc.id }}">{{ d.cipher or d.filename }}</a>
-  {% endfor %}
-</div>
-
 <!-- не form: внутри лежат формы массовых действий, вложенные формы недопустимы -->
 <div class="filters">
   <div class="row-between">
@@ -17,25 +11,49 @@
       {% if plan.frozen %}<span class="tag tag-g">зафиксирован</span>
       {% else %}<span class="sub">черновик</span>{% endif %}
     </div>
-    <div style="display:flex;gap:8px">
+    {# Одно главное действие. «Зафиксировать» необратимо и делается раз за
+       подачу — пять равноправных кнопок в ряд это скрывали. #}
+    <div style="display:flex;gap:8px;align-items:center">
       <a class="btn" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
       {% if not plan.frozen %}
-      <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
-        <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="A">
-        <button class="btn" type="submit">Взять все A</button>
-      </form>
-      <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
-        <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="filtered">
-        <input type="hidden" name="q" value="{{ plan.q }}"><input type="hidden" name="flt" value="{{ plan.flt }}">
-        <button class="btn" type="submit">Взять отфильтрованные</button>
-      </form>
-      <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
-        <input type="hidden" name="value" value="skip"><input type="hidden" name="scope" value="C">
-        <button class="btn" type="submit">Снять все C</button>
-      </form>
-      <form method="post" action="/api/check-plans/{{ plan.plan.id }}/freeze">
-        <button class="btn btn-primary" type="submit">Зафиксировать</button>
-      </form>
+      <details class="menu">
+        <summary>Массовые действия
+          <svg width="9" height="6" viewBox="0 0 9 6" fill="none" aria-hidden="true"><path d="M1 1l3.5 3.5L8 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <div class="menu-body">
+          <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
+            <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="A">
+            <button type="submit">Взять все A <span class="sub">{{ plan.stats.proposed }}</span></button>
+          </form>
+          <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
+            <input type="hidden" name="value" value="take"><input type="hidden" name="scope" value="filtered">
+            <input type="hidden" name="q" value="{{ plan.q }}"><input type="hidden" name="flt" value="{{ plan.flt }}">
+            <button type="submit">Взять отфильтрованные <span class="sub">{{ plan.rows|length }}</span></button>
+          </form>
+          <div class="menu-sep"></div>
+          <form hx-post="/api/check-plans/{{ plan.plan.id }}/bulk" hx-target="#plantable" hx-swap="outerHTML">
+            <input type="hidden" name="value" value="skip"><input type="hidden" name="scope" value="C">
+            <button type="submit">Снять все C</button>
+          </form>
+          <div class="hint">Позиции с решением эксперта массовое действие не трогает.
+            Отменить его можно кнопкой «Вернуть» в строке итога.</div>
+        </div>
+      </details>
+      {# необратимое действие раз за подачу: последствие написано словами
+         до нажатия, а не после #}
+      <details class="menu">
+        <summary class="btn btn-primary">Зафиксировать</summary>
+        <div class="menu-body">
+          <div class="hint">План проверки №{{ plan.plan.version }} закроется для правок:
+            {{ plan.stats.included }} из {{ plan.stats.total }}
+            {{ plan.stats.total|plural('позиции','позиций','позиций') }} уйдут в сверку,
+            галочки станут недоступны. Изменить отбор можно будет только новой версией плана.</div>
+          <div class="menu-sep"></div>
+          <form method="post" action="/api/check-plans/{{ plan.plan.id }}/freeze">
+            <button type="submit"><b>Да, зафиксировать</b></button>
+          </form>
+        </div>
+      </details>
       {% endif %}
     </div>
   </div>
@@ -57,6 +75,11 @@
            class="{{ 'active' if plan.flt == key }}">{{ f[0] }}</a>
       {% endfor %}
     </div>
+      <div class="keyhint" style="margin-left:auto">
+        <span><kbd>↑</kbd><kbd>↓</kbd> строка</span>
+        <span><kbd>Enter</kbd> взять или снять</span>
+        <span><kbd>/</kbd> поиск</span>
+      </div>
   </div>
 </div>
 {% include '_checkplan_table.html' %}

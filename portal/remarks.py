@@ -12,7 +12,7 @@
 import hashlib
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from . import models
@@ -22,6 +22,19 @@ STATUS_LABELS = {
     models.OPEN: 'в работе',
     models.DISMISSED: 'снято',
     models.SENT: 'передано бюро',
+}
+
+# Что именно нашла проверка — словами. Код проверки в интерфейсе выглядел как
+# «проверка паспорта тома: symbol_unused» и уходил бы в письмо бюро.
+PASSPORT_EVIDENCE = {
+    'sheet_gap': 'в ведомости чертежей пропущены номера листов',
+    'ref_missing': 'прилагаемый документ объявлен в ведомости, но в подаче его нет',
+    'ref_cipher': 'шифр документа в ведомости не совпадает с шифром тома',
+    'spec_sheets': 'число листов спецификации не совпадает с объявленным',
+    'revision_mismatch': 'номера изменений на листах не совпадают с листом регистрации',
+    'norm': 'норматив заменён или требует проверки',
+    'symbol_unused': 'условные обозначения объявлены, но в спецификации тома не встречаются',
+    'unreadable': 'на листах нет текстового слоя — машина их не прочитала',
 }
 
 # что проверялось — те же названия, что в выгрузке паспорта
@@ -124,6 +137,19 @@ def match_evidence(item) -> str:
     return '; '.join(parts)
 
 
+def evidence_text(remark) -> str:
+    """Пояснение под замечанием — словами, а не кодом проверки.
+
+    Считается на показе, а не при заведении: замечания, заведённые до того,
+    как коды перестали протекать в интерфейс, чинятся сами.
+    """
+    if remark.source == 'passport':
+        parts = (remark.key or '').split(':')
+        code = parts[1] if len(parts) > 1 else ''
+        return PASSPORT_EVIDENCE.get(code) or remark.evidence or ''
+    return remark.evidence or ''
+
+
 def by_key(session, document_id):
     return {r.key: r for r in session.scalars(
         select(Remark).where(Remark.document_id == document_id)).all()}
@@ -143,6 +169,19 @@ def stats(rows):
             'open': sum(1 for r in rows if r.status == models.OPEN),
             'sent': sum(1 for r in rows if r.status == models.SENT),
             'dismissed': sum(1 for r in rows if r.status == models.DISMISSED)}
+
+
+def open_count(session, documents):
+    """Сколько замечаний ждут решения — счётчик у вкладки.
+
+    Вопрос «я закончил?» интерфейс до сих пор не отвечал ни на одном экране.
+    """
+    ids = [d.id for d in documents]
+    if not ids:
+        return 0
+    return session.scalar(
+        select(func.count()).select_from(Remark)
+        .where(Remark.document_id.in_(ids), Remark.status == models.OPEN)) or 0
 
 
 def first_page(sheets):
@@ -261,7 +300,8 @@ def from_passport(session, doc, finding, status, user_id=None):
     return decide(session, doc, passport_key(finding), status, source='passport',
                   subject=PASSPORT_TITLES.get(code, code),
                   text=finding.get('text', ''),
-                  evidence=f'проверка паспорта тома: {code}',
+                  evidence=(PASSPORT_EVIDENCE.get(code)
+                            or f'проверка паспорта тома: {code}'),
                   sheets=finding.get('sheets') or [],
                   level=finding.get('level', 'red'), user_id=user_id)
 

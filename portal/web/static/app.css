@@ -1,24 +1,41 @@
 /* СВОД — рабочий инструмент, а не лендинг: плотная сетка, табличные цифры,
-   цвет несёт смысл. Тёмная тема основная, светлая — по настройке системы. */
+   цвет несёт смысл.
+
+   База — СВЕТЛАЯ: эксперт сидит в таблице на 300+ строк часами, и тёмный фон
+   с крупными карточками эту работу замедляет. Тёмная тема остаётся, но
+   приходит по настройке системы, а не по умолчанию. Порядок блоков ниже —
+   светлая в :root, тёмная в media, тёмная по [data-theme] — держит оба
+   направления переключения: явный выбор всегда бьёт настройку системы. */
 :root {
+  --bg: #ffffff; --side: #f7f8fa; --panel: #ffffff; --panel-2: #f7f8fa;
+  --line: #e3e6ea; --line-2: #d7dbe1; --row: #eef0f3; --hover: #f5f7f9;
+  --fg: #14181d; --fg-2: #2b323b; --fg-3: #4a525d; --fg-4: #626b77;
+  --fg-5: #79828e; --fg-6: #8e97a2; --fg-7: #949da8;
+  --accent: #1d5bd6; --accent-2: #164ab1;
+  --g: #3f9c6d; --y: #c99333; --r: #c8544c;
+  --g-fg: #1f6b45; --y-fg: #8a6115; --r-fg: #a8352c;
+  --changed: #c4530d; --changed-bg: rgba(196,83,13,.10);
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1014; --side: #0a0c0f; --panel: #11151a; --panel-2: #0f1318;
+    --line: #1e232b; --line-2: #262c35; --row: #171b21; --hover: #12161c;
+    --fg: #e4e8ee; --fg-2: #cfd6df; --fg-3: #9aa4b2; --fg-4: #7b8593;
+    --fg-5: #6b7482; --fg-6: #5f6875; --fg-7: #454d59;
+    --accent: #4880ff; --accent-2: #6d9aff;
+    --g-fg: #7cc79d; --y-fg: #e0b45f; --r-fg: #e08a83;
+    --changed: #e8912a; --changed-bg: rgba(232,145,42,.12);
+  }
+}
+:root[data-theme="dark"] {
   --bg: #0d1014; --side: #0a0c0f; --panel: #11151a; --panel-2: #0f1318;
   --line: #1e232b; --line-2: #262c35; --row: #171b21; --hover: #12161c;
   --fg: #e4e8ee; --fg-2: #cfd6df; --fg-3: #9aa4b2; --fg-4: #7b8593;
   --fg-5: #6b7482; --fg-6: #5f6875; --fg-7: #454d59;
-  --accent: #2f6df6; --accent-2: #4880ff;
-  --g: #3f9c6d; --y: #c99333; --r: #c8544c;
+  --accent: #4880ff; --accent-2: #6d9aff;
   --g-fg: #7cc79d; --y-fg: #e0b45f; --r-fg: #e08a83;
-  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #ffffff; --side: #f7f8fa; --panel: #ffffff; --panel-2: #f7f8fa;
-    --line: #e3e6ea; --line-2: #d7dbe1; --row: #eef0f3; --hover: #f5f7f9;
-    --fg: #14181d; --fg-2: #2b323b; --fg-3: #4a525d; --fg-4: #626b77;
-    --fg-5: #79828e; --fg-6: #8e97a2; --fg-7: #aab2bc;
-    --accent: #1d5bd6; --accent-2: #164ab1;
-    --g-fg: #1f6b45; --y-fg: #8a6115; --r-fg: #a8352c;
-  }
+  --changed: #e8912a; --changed-bg: rgba(232,145,42,.12);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); }
@@ -35,24 +52,63 @@ input, button, select { font: inherit; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .muted { color: var(--fg-4); }
 .dim { opacity: .45; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+                   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Клавиатура — полноправный способ работы, а не запасной: видимый фокус
+   обязателен на всём, что нажимается. */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 .upper { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-5); }
 
 .app { display: flex; height: 100vh; overflow: hidden; }
-.side { width: 188px; flex: 0 0 188px; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
-.brand { padding: 18px 16px 20px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+/* Полоса вместо панели. Ради одной живой ссылки 188 px не держат: эта
+   ширина нужнее колонке «Наименование» в сверке, а список «следующих
+   итераций» — это дорожная карта, ей не место в продукте. */
+.rail { width: 48px; flex: 0 0 48px; background: var(--side); border-right: 1px solid var(--line);
+        display: flex; flex-direction: column; align-items: center; padding: 14px 0 12px; }
+.rail-brand { font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .1em;
+              writing-mode: vertical-rl; color: var(--fg); padding: 2px 0 10px; }
+.rail-brand:hover { color: var(--accent); }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.rail-user { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-2);
+             display: flex; align-items: center; justify-content: center; font-size: 11px;
+             color: var(--fg-3); font-family: var(--mono); }
+.rail-out { display: flex; color: var(--fg-5); }
+.rail-out:hover { color: var(--fg-2); }
+.brand { display: flex; flex-direction: column; gap: 3px; }
 .brand b { font-family: var(--mono); font-size: 15px; font-weight: 500; letter-spacing: .14em; }
-.nav { padding: 12px 8px; display: flex; flex-direction: column; gap: 1px; }
-.nav a { padding: 7px 9px; border-radius: 3px; display: flex; justify-content: space-between; gap: 8px; color: var(--fg); }
-.nav a:hover { background: var(--hover); }
-.nav a.active { background: var(--row); }
-.nav .later { margin-top: 14px; display: flex; flex-direction: column; gap: 1px; }
-.nav .later span { padding: 7px 9px; color: var(--fg-7); cursor: default; }
-.side-foot { margin-top: auto; padding: 14px 16px; border-top: 1px solid var(--line); color: var(--fg-3); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .scroll { flex: 1; min-height: 0; overflow: auto; }
 
 .head { padding: 18px 28px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
-.head.tabs-head { padding-bottom: 0; align-items: stretch; flex-direction: column; gap: 14px; }
+
+/* Шапка объекта — одна строка. Крошки, название, шифр, бюро и подача — это
+   адрес, он не меняется весь сеанс; три строки и 90 px под него забирали
+   место у данных. */
+.topline { flex: 0 0 46px; height: 46px; padding: 0 28px; display: flex;
+           align-items: center; justify-content: space-between; gap: 24px;
+           border-bottom: 1px solid var(--line); }
+.crumbs-line { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.crumbs-line .title { font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+                      white-space: nowrap; }
+.crumbs-line .sep { color: var(--fg-7); }
+.crumbs-line a:hover { color: var(--accent); }
+.head-act { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.tabsline { display: flex; align-items: stretch; justify-content: space-between;
+            gap: 16px; padding: 0 28px; border-bottom: 1px solid var(--line); }
+.docpick { display: flex; align-items: center; gap: 8px; align-self: center; }
+.docpick select { padding: 5px 8px; background: var(--panel-2);
+                  border: 1px solid var(--line-2); border-radius: 3px;
+                  color: var(--fg); font-family: var(--mono); font-size: 12px; }
+
+/* Лист — режим, а не раздел: своя полоса с явным выходом туда, откуда пришли */
+.modebar { flex: 0 0 46px; height: 46px; padding: 0 20px; display: flex;
+           align-items: center; justify-content: space-between; gap: 20px;
+           border-bottom: 1px solid var(--line); }
+.modebar .back { display: inline-flex; align-items: center; gap: 8px;
+                 color: var(--fg-2); }
+.modebar .back:hover { color: var(--accent); }
 h1 { font-size: 19px; font-weight: 500; letter-spacing: -.01em; margin: 0; }
 .crumbs { display: flex; gap: 8px; font-size: 11px; color: var(--fg-5); }
 .crumbs a:hover { color: var(--fg-2); }
@@ -78,6 +134,9 @@ table.grid th:first-child, table.grid td:first-child { padding-left: 28px; }
 table.grid th:last-child, table.grid td:last-child { padding-right: 28px; }
 table.grid tbody tr:hover { background: var(--hover); }
 td.r, th.r { text-align: right; }
+/* Ниже 1280 колонки не сжимаются в кашу: горизонтально едет только область
+   данных, шапка и вкладки остаются на месте. */
+table.grid, table.tbl { min-width: 980px; }
 .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* наименование различает строки с одинаковой маркой («... DN 32» / «... DN 40»),
    поэтому его хвост прятать нельзя — переносим на вторую строку */
@@ -95,6 +154,21 @@ td.r, th.r { text-align: right; }
 
 .legend { display: flex; gap: 16px; font-size: 11px; color: var(--fg-5); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* сводка приёмки над составом комплекта */
+.summary { display: flex; align-items: center; gap: 32px; flex-wrap: wrap;
+           padding: 16px 28px; border-bottom: 1px solid var(--line);
+           background: var(--panel-2); }
+.summary-left { display: flex; flex-direction: column; gap: 7px; min-width: 280px; }
+.summary-head { display: flex; align-items: baseline; gap: 8px; }
+.summary-head b { font-size: 22px; font-weight: 500; }
+.summary-bar { height: 5px; }
+.summary-nums { display: flex; gap: 1px; background: var(--line);
+                border: 1px solid var(--line); }
+.summary-nums > div { background: var(--panel); padding: 8px 16px 10px; }
+.summary-nums b { font-size: 16px; font-weight: 500; }
+.summary-nums .upper { margin-top: 3px; }
+.summary-act { margin-left: auto; }
 
 .vols { display: flex; flex-direction: column; gap: 10px; padding: 18px 28px 40px; }
 .vol { border: 1px solid #21273088; border-color: var(--line); background: var(--panel); border-radius: 4px; border-left: 2px solid var(--fg-7); display: flex; align-items: flex-start; gap: 24px; padding: 14px 18px; }
@@ -159,22 +233,31 @@ input.search:focus { border-color: var(--accent); }
 
 /* ---------------------------------------------- паспорт тома и план проверки */
 /* Оранжевый нагружен ровно одним смыслом — «затронуто изменением». Светофор
-   готовности (g/y/r) остаётся отдельной системой и с ним не смешивается. */
-:root { --changed: #d2590f; --changed-bg: rgba(210,89,15,.10); }
-
-.docbar { display: flex; gap: 2px; padding: 10px 28px 0; flex-wrap: wrap; }
-.docbar a { padding: 6px 10px; border-radius: 3px; font-family: var(--mono);
-  font-size: 12px; color: var(--fg-4); }
-.docbar a:hover { background: var(--hover); color: var(--fg-2); }
-.docbar a.active { background: var(--row); color: var(--fg); }
+   готовности (g/y/r) остаётся отдельной системой и с ним не смешивается.
+   Сами токены --changed объявлены вместе с остальными, в блоках тем. */
 
 .psp { display: flex; flex-direction: column; gap: 26px; padding-bottom: 60px; }
-.psp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
-.psp-code { font-size: 16px; }
-.psp-xlsx { margin-top: 12px; }
-.psp-nums { display: flex; gap: 26px; }
-.psp-nums div { display: flex; flex-direction: column; gap: 2px; text-align: right; }
-.psp-nums b { font-family: var(--mono); font-size: 17px; font-weight: 500; }
+/* Одна строка состояния вместо пяти крупных счётчиков содержимого */
+.psp-state { display: flex; align-items: center; justify-content: space-between;
+             gap: 24px; flex-wrap: wrap; }
+.state-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.state-line .state { font-size: 13px; }
+
+/* Свёрнутые блоки: развёрнуты только расхождения, остальное открывается,
+   когда эксперту это нужно. Счётчик и отметка проблемы — в заголовке. */
+.folds { display: flex; flex-direction: column; }
+.fold { border-bottom: 1px solid var(--row); }
+.fold > summary { display: flex; align-items: center; gap: 12px; padding: 12px 4px;
+                  cursor: pointer; list-style: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: ''; width: 0; height: 0; flex: 0 0 auto;
+  border: 4px solid transparent; border-left-color: var(--fg-5);
+  margin-right: 2px; transition: transform .12s ease; transform-origin: 25% 50%; }
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary:hover { background: var(--hover); }
+.fold-name { width: 280px; flex: 0 0 280px; font-weight: 500; }
+.fold-sub { flex: 1; min-width: 0; }
+.fold > *:not(summary) { padding: 0 0 18px; }
 
 .block { display: flex; flex-direction: column; gap: 10px; }
 .block h2 { font-size: 12px; font-weight: 600; letter-spacing: .04em;
@@ -211,7 +294,7 @@ input.search:focus { border-color: var(--accent); }
 .tag-y { border-color: rgba(201,147,51,.4); color: var(--y-fg); }
 .tag-r { border-color: rgba(200,84,76,.4); color: var(--r-fg); }
 
-.norms { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 1px; }
+.norms { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 2px 32px; }
 .norm { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; }
 .norm .norm-title { color: var(--fg-4); flex: 1; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -244,7 +327,11 @@ input.search:focus { border-color: var(--accent); }
 .cls.cls-a { background: var(--fg); color: var(--bg); }
 .cls.cls-b { border: 1px solid var(--fg-6); color: var(--fg-3); }
 .cls.cls-c { color: var(--fg-6); }
-.ci-name { max-width: 340px; }
+/* колонка «Чем проверяется» ушла — её 180 px достались наименованию */
+.ci-name { max-width: 460px; }
+.ci-name-foot { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.eye { font-size: 10px; color: var(--fg-5); border: 1px solid var(--line-2);
+       border-radius: 2px; padding: 0 5px; margin-top: 2px; }
 .ci-mark { max-width: 200px; font-size: 12px; }
 .ci-why { font-size: 11px; }
 .origin { font-size: 10px; color: var(--fg-5); margin-top: 2px; }
@@ -255,7 +342,46 @@ input.search:focus { border-color: var(--accent); }
 .why-minus { color: var(--fg-6); }
 .quote { margin-top: 3px; color: var(--fg-4); border-left: 2px solid var(--changed);
   padding-left: 7px; line-height: 1.4; }
+.quote-same { border-left-color: var(--line-2); color: var(--fg-5); font-size: 11px; }
 .note { margin-top: 3px; color: var(--fg-3); }
+/* Массовые действия — под одной кнопкой. Пять равноправных кнопок в ряд
+   уравнивали «Зафиксировать» (необратимо, один раз за подачу) со
+   вспомогательными. details/summary: нативно, с клавиатуры и без скриптов. */
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; padding: 7px 12px;
+  border: 1px solid var(--line-2); border-radius: 3px; color: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary:hover { border-color: var(--fg-7); color: var(--fg); }
+.menu[open] > summary { border-color: var(--fg-7); background: var(--hover); }
+.menu-body { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5;
+  min-width: 240px; background: var(--panel); border: 1px solid var(--line-2);
+  border-radius: 4px; box-shadow: 0 6px 18px rgba(0,0,0,.10);
+  display: flex; flex-direction: column; padding: 4px; }
+.menu-body button, .menu-body a { text-align: left; padding: 8px 10px;
+  background: none; border: 0; border-radius: 3px; color: var(--fg-2);
+  cursor: pointer; white-space: nowrap; }
+.menu-body button:hover, .menu-body a:hover { background: var(--hover); color: var(--fg); }
+.menu-body .hint { padding: 4px 10px 8px; color: var(--fg-5); font-size: 11px;
+  white-space: normal; max-width: 260px; }
+.menu-sep { height: 1px; background: var(--line); margin: 4px 0; }
+
+/* кнопка-меню с видом главного действия: .menu > summary иначе перебивает .btn-primary */
+.menu > summary.btn-primary { padding: 8px 14px; background: var(--accent);
+  border-color: var(--accent); color: #fff; font-weight: 500; }
+.menu > summary.btn-primary:hover,
+.menu[open] > summary.btn-primary { background: var(--accent-2); border-color: var(--accent-2); }
+
+/* строка под курсором клавиатуры */
+tr.cur > td { background: var(--row); }
+tr.cur > td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.keyhint { display: flex; gap: 12px; align-items: center; font-size: 11px;
+           color: var(--fg-5); white-space: nowrap; }
+.keyhint kbd { font-family: var(--mono); font-size: 10px; padding: 1px 5px;
+               border: 1px solid var(--line-2); border-radius: 3px;
+               background: var(--panel-2); color: var(--fg-4); }
+@media (max-width: 1280px) { .keyhint { display: none; } }
+
 .flash { padding: 8px 10px; margin: 8px 0; background: var(--row);
   border-left: 2px solid var(--accent); font-size: 12px; }
 
@@ -270,8 +396,6 @@ input.search:focus { border-color: var(--accent); }
 .login-card label { display: flex; flex-direction: column; gap: 5px; }
 .login-card .search { width: 100%; }
 .login-err { color: var(--r-fg); font-size: 12px; }
-.side-foot .logout { display: block; margin-top: 6px; color: var(--fg-5); }
-.side-foot .logout:hover { color: var(--fg-2); }
 
 /* --- сверка с чертежами */
 .mstart { display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
@@ -285,7 +409,6 @@ input.search:focus { border-color: var(--accent); }
 .mtable .c-unit { width: 48px; }
 .mtable .c-num { width: 92px; text-align: right; }
 .mtable .c-status { width: 210px; }
-.mtable .c-sheets { width: 230px; }
 .mtable td.c-num { text-align: right; white-space: nowrap; }
 .mtable .sheets span { display: block; }
 /* точка уровня стоит перед статусом: цвет читается раньше слова */
@@ -300,8 +423,17 @@ input.search:focus { border-color: var(--accent); }
 .link { background: none; border: 0; padding: 0; color: var(--fg-5); cursor: pointer;
         font-size: 12px; text-decoration: underline dotted; }
 .link:hover { color: var(--fg-2); }
-.mtable .c-act { width: 150px; }
-.mtable td.c-act { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+/* В строке видно одно действие — «В замечания». «Ложная тревога» и переход
+   на лист появляются по наведению и по фокусу с клавиатуры: три кнопки в
+   столбик растягивали строку с 34 до 50 px, а таблицу читают глазами по
+   колонке. Прозрачность, а не display: строка не должна дёргаться. */
+.mtable .c-act { width: 230px; }
+/* флекс вешаем на обёртку, а не на td: ячейка с display:flex выпадает из
+   строки, и разделитель строки обрывается на её левом крае */
+.act-wrap { display: flex; align-items: center; gap: 10px; }
+.row-act { display: flex; align-items: center; gap: 10px; opacity: 0; transition: opacity .12s ease; }
+.mrow:hover .row-act, .mrow:focus-within .row-act { opacity: 1; }
+@media (hover: none) { .row-act { opacity: 1; } }
 .mrow.decided { opacity: .72; }
 .verdict { font-size: 12px; }
 .v-on { color: var(--r-fg); } .v-off { color: var(--fg-5); }
@@ -331,13 +463,18 @@ input.search:focus { border-color: var(--accent); }
 .rem-group:first-child { padding-top: 0; }
 
 /* --- просмотрщик листа */
-.sheetwrap { display: flex; height: calc(100vh - 132px); min-height: 0; }
+/* режим листа: над ним только полоса возврата, высоту держит флекс */
+.sheetwrap { display: flex; flex: 1; min-height: 0; }
+.sheetnav-empty { padding: 10px 8px; color: var(--fg-4); font-size: 11px; line-height: 1.5; }
 .sheetnav { width: 150px; flex: 0 0 150px; overflow-y: auto; padding: 10px 8px;
             border-right: 1px solid var(--line); display: flex;
             flex-direction: column; gap: 8px; }
 .thumb { display: block; border: 1px solid var(--line); border-radius: 3px;
          padding: 4px; background: var(--panel); position: relative; }
-.thumb img { width: 100%; display: block; background: #fff; border-radius: 2px; }
+/* пропорция держит рамку, пока картинка листа не отрисована: без неё
+   номер листа наезжал на подпись типа («1» + «тул» вместо «титул») */
+.thumb img { width: 100%; aspect-ratio: 1.41; object-fit: cover; display: block;
+             background: #fff; border-radius: 2px; }
 .thumb.on { border-color: var(--accent); }
 .thumb-no { position: absolute; left: 6px; top: 6px; font-size: 10px;
             padding: 0 4px; border-radius: 2px; background: rgba(0,0,0,.55); color: #fff; }

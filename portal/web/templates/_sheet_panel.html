@@ -14,6 +14,12 @@
          title="Листы, к которым относится хотя бы одно замечание">
         с замечаниями{% if sheet.marked_pages %} · {{ sheet.marked_pages }}{% endif %}</a>
     </div>
+    {% if not sheet.ready %}
+      {# пустое состояние словами, а не рядом пустых рамок #}
+      <div class="sheetnav-empty">Картинки листов ещё не отрисованы:
+        0 из {{ sheet.total }}. Метки замечаний можно будет ставить,
+        когда воркер их дорисует.</div>
+    {% endif %}
     {% for s in sheet.sheets %}
       <a class="thumb {{ 'on' if s.page == sheet.page }}"
          href="/projects/{{ project.id }}/sheet?doc={{ doc.id }}&page={{ s.page }}{{ '&only=1' if sheet.only_marked }}"

@@ -10,7 +10,7 @@ import re
 from urllib.parse import quote
 from datetime import datetime
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
                                Response)
 from fastapi.staticfiles import StaticFiles
@@ -22,7 +22,8 @@ from agent.api import KIND_LABELS, KIND_ORDER
 
 from .. import auth
 from .. import checkplan as plan_service
-from .. import config, models, nomenclature, passport as passport_service
+from .. import config, findings as finding_service, models, nomenclature
+from .. import passport as passport_service
 from .. import letter, match as match_service, remarks as remark_service
 from .. import sheets as sheet_service
 from ..db import SessionLocal, upgrade_schema
@@ -120,9 +121,22 @@ def _plural(n, one, few, many):
     return many
 
 
+def _initials(label):
+    """«Виталий Панасенко» -> ВП, «panasenko.ctt@gmail.com» -> ПК не выйдет,
+    но PA лучше, чем почта целиком в интерфейсе."""
+    parts = [p for p in re.split(r'[\s._@+-]+', (label or '').strip()) if p]
+    if not parts:
+        return '—'
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][:1] + parts[1][:1]).upper()
+
+
 templates.env.filters['num'] = _num
+templates.env.filters['initials'] = _initials
 templates.env.filters['mb'] = _mb
 templates.env.filters['plural'] = _plural
+templates.env.globals['evidence'] = remark_service.evidence_text
 templates.env.globals['APP_NAME'] = config.APP_NAME
 templates.env.globals['ORG_NAME'] = config.ORG_NAME
 templates.env.globals['KIND_LABELS'] = KIND_LABELS
@@ -299,7 +313,11 @@ def _composition(s, project, submission):
     parsed = sum(d.pages_total or 0 for d in docs)
     ready = sum(1 for i in items
                 if i['d'].status == models.DONE and i['level'] != 'r')
+    # сводка приёмки: сколько работы осталось эксперту. Этого ответа не было
+    # ни на одном экране, хотя это первый вопрос, с которым сюда заходят
+    done_docs = [d for d in docs if d.status == models.DONE]
     return {'volumes': items, 'busy': busy, 'parsed': parsed, 'ready': ready,
+            'summary': finding_service.submission_stats(s, done_docs),
             'project': project, 'submission': submission}
 
 
@@ -324,9 +342,12 @@ def _plan_ctx(s, doc, q='', flt=''):
     if plan is None:
         return {'doc': doc, 'plan': None, 'rows': [], 'stats': {}, 'q': q, 'flt': flt}
     rows = plan_service.items(s, plan.id)
+    shown = plan_service.filtered(rows, q, flt)[:800]
+    plan_service.mark_quotes(shown)
     return {'doc': doc, 'plan': plan, 'all_rows': rows,
-            'rows': plan_service.filtered(rows, q, flt)[:800],
+            'rows': shown,
             'stats': plan_service.stats(rows),
+            'show_pos': any((i.pos or '').strip() for i in rows),
             'filters': plan_service.FILTERS, 'q': q, 'flt': flt,
             'frozen': plan.status == models.FROZEN}
 
@@ -343,7 +364,9 @@ def _remarks_ctx(s, doc, sub, scope='doc'):
             'stats': remark_service.stats(rows),
             'labels': remark_service.STATUS_LABELS,
             'orphaned': orphaned,
-            'users': {u.id: (u.name or u.email)
+            # под замечанием стоит имя, а не почта целиком: этот текст
+            # эксперт подписывает и отдаёт бюро
+            'users': {u.id: (u.name or u.email.split('@')[0])
                       for u in s.scalars(select(User)).all()}}
 
 
@@ -351,11 +374,14 @@ def _remarks_ctx(s, doc, sub, scope='doc'):
 def project_page(request: Request, project_id: int, tab: str = 'composition',
                  q: str = '', section: str = '', flagged: int = 0,
                  doc: int = 0, flt: str = '', scope: str = '',
-                 page: int = 0, item: int = 0, only: int = 0, rem: int = 0):
+                 page: int = 0, item: int = 0, only: int = 0, rem: int = 0,
+                 from_tab: str = Query('', alias='from')):
     with db() as s:
         p, sub = _load(s, project_id)
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
-               'q': q, 'section': section, 'flagged': flagged, 'flt': flt}
+               'q': q, 'section': section, 'flagged': flagged, 'flt': flt,
+               'from': from_tab,
+               'open_remarks': remark_service.open_count(s, _parsed_docs(sub))}
         ctx['composition'] = _composition(s, p, sub)
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
@@ -428,8 +454,13 @@ def match_start(request: Request, document_id: int):
 # ------------------------------------------------------------- замечания
 
 @app.post('/api/match-items/{item_id}/remark', response_class=HTMLResponse)
-def match_remark(request: Request, item_id: int, status: str = Form(...)):
-    """Решение эксперта по строке сверки. В ответе — только эта строка."""
+def match_remark(request: Request, item_id: int, status: str = Form(...),
+                 flt: str = Form('')):
+    """Решение эксперта по строке сверки. В ответе — только эта строка.
+
+    Набор колонок и активный фильтр приходят вместе с решением: подменённая
+    строка обязана иметь ровно те же ячейки, что и остальная таблица.
+    """
     if status not in (models.OPEN, models.DISMISSED, models.SENT):
         raise HTTPException(400, 'неизвестное решение')
     with db() as s:
@@ -439,10 +470,12 @@ def match_remark(request: Request, item_id: int, status: str = Form(...)):
         doc = s.get(Document, item.document_id)
         item.remark = remark_service.from_match(s, doc, item, status, _uid(request))
         item.level_class = match_service.LEVELS.get(item.level, '')
+        item.status_label = match_service.status_label(item.status)
         project_id, _ = plan_service.project_of(s, doc)
         return templates.TemplateResponse(
             request, '_match_row.html',
-            {'request': request, 'i': item,
+            {'request': request, 'i': item, 'flt': flt,
+             'cols': match_service.columns(match_service.items(s, doc.id)),
              'project': s.get(Project, project_id)})
 
 
@@ -629,10 +662,36 @@ def plan_bulk(request: Request, plan_id: int, value: str = Form(...),
         changed, kept = plan_service.bulk(s, target, value, bool(overwrite),
                                           project_id, submission_id, _uid(request))
         log.info('план %s: массовое действие %s, изменено %s, оставлено %s',
-                 plan.id, value, changed, kept)
+                 plan.id, value, len(changed), kept)
         ctx = _plan_ctx(s, doc, q, flt)
-        ctx['flash'] = f'Изменено позиций: {changed}' + (
-            f', оставлено с решением эксперта: {kept}' if kept else '')
+        ctx['flash'] = {
+            'text': f'Изменено позиций: {len(changed)}' + (
+                f', оставлено с решением эксперта: {kept}' if kept else ''),
+            'undo': ','.join(str(i) for i in changed),
+        }
+        return templates.TemplateResponse(request, '_checkplan_table.html', {
+            'request': request, 'project': s.get(Project, project_id), 'plan': ctx})
+
+
+@app.post('/api/check-plans/{plan_id}/undo', response_class=HTMLResponse)
+def plan_undo(request: Request, plan_id: int, ids: str = Form(''),
+              q: str = Form(''), flt: str = Form('')):
+    """Отмена массового действия: перечисленные строки возвращаются в «как
+    решила машина». Без этого «снять все C» необратимо стирало ручной отбор."""
+    wanted = {int(v) for v in ids.split(',') if v.strip().isdigit()}
+    with db() as s:
+        plan = s.get(CheckPlan, plan_id)
+        if plan is None:
+            raise HTTPException(404, 'план не найден')
+        if plan.status == models.FROZEN:
+            raise HTTPException(409, 'план зафиксирован: создайте новую версию')
+        doc = s.get(Document, plan.document_id)
+        project_id, submission_id = plan_service.project_of(s, doc)
+        rows = [r for r in plan_service.items(s, plan.id) if r.id in wanted]
+        back, _ = plan_service.bulk(s, rows, models.AUTO, True,
+                                    project_id, submission_id, _uid(request))
+        ctx = _plan_ctx(s, doc, q, flt)
+        ctx['flash'] = {'text': f'Возвращено позиций: {len(back)}', 'undo': ''}
         return templates.TemplateResponse(request, '_checkplan_table.html', {
             'request': request, 'project': s.get(Project, project_id), 'plan': ctx})
 
@@ -693,7 +752,8 @@ def page_crop_png(document_id: int, page: int, box: str = '0,0,1,1',
 
 @app.get('/projects/{project_id}/sheet', response_class=HTMLResponse)
 def sheet_panel(request: Request, project_id: int, doc: int = 0, page: int = 0,
-                item: int = 0, only: int = 0, rem: int = 0):
+                item: int = 0, only: int = 0, rem: int = 0,
+                from_tab: str = Query('', alias='from')):
     with db() as s:
         p, sub = _load(s, project_id)
         picked, _ = _pick_doc(sub, doc)
@@ -754,9 +814,14 @@ def project_composition(request: Request, project_id: int):
 
 def _nom_ctx(s, submission, q='', section='', flagged=0):
     rows, totals = nomenclature.collect(s, submission.id)
-    sections = sorted({sec for r in rows for sec in r.sections})
+    # «—» в разделе значит «раздел не распознан»: как кнопка фильтра это
+    # пустой чип, который ничего не отбирает. Переключатель показываем,
+    # только когда разделов и правда несколько.
+    sections = sorted({sec for r in rows for sec in r.sections if sec and sec != '—'})
     shown = nomenclature.filtered(rows, q, section, bool(flagged))
     return {'rows': shown[:2000], 'totals': totals, 'sections': sections,
+            'show_sections': len(sections) > 1,
+            'show_section_col': len({tuple(r.sections) for r in rows}) > 1,
             'shown': len(shown), 'truncated': len(shown) > 2000,
             'q': q, 'section': section, 'flagged': bool(flagged)}
 

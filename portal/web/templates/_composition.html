@@ -2,6 +2,37 @@
      {% if composition.busy %}hx-get="/projects/{{ project.id }}/composition"
      hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
 {% if composition.volumes %}
+  {# Сводка приёмки отвечает на вопрос, которого не было ни на одном экране:
+     сколько работы осталось эксперту. #}
+  {% set sm = composition.summary %}
+  {% if sm.total %}
+  <div class="summary">
+    <div class="summary-left">
+      <div class="summary-head">
+        <b class="num">{{ sm.open }}</b>
+        <span>{{ sm.open|plural('находка ждёт решения','находки ждут решения','находок ждут решения') }}</span>
+        <span class="sub">из {{ sm.total }}</span>
+      </div>
+      <div class="bar summary-bar">
+        <div style="width:{{ sm.percent }}%;background:var(--g)"></div>
+      </div>
+      <div class="sub">{{ sm.decided }} решено{% if sm.remarks %} · {{ sm.remarks }}
+        {{ sm.remarks|plural('ушло','ушли','ушли') }} в замечания{% endif %}</div>
+    </div>
+    <div class="summary-nums">
+      <div><span class="state s-bad"><span class="dot"></span><b class="num">{{ sm.red }}</b></span><div class="upper">критично</div></div>
+      <div><span class="state s-warn"><span class="dot"></span><b class="num">{{ sm.amber }}</b></span><div class="upper">на усмотрение</div></div>
+      <div><span class="state s-idle"><span class="dot"></span><b class="num">{{ sm.uncheckable }}</b></span><div class="upper">машине не проверить</div></div>
+    </div>
+    <div class="summary-act">
+      {% if sm.remarks %}
+        <a class="btn btn-primary" href="/projects/{{ project.id }}?tab=remarks">Замечания и письмо бюро</a>
+      {% else %}
+        <span class="sub">Письмо бюро соберётся, когда появятся замечания</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
   <div class="pad" style="padding-bottom:0">
     <div class="row-between">
       <div class="sub">

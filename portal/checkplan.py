@@ -66,6 +66,24 @@ def filtered(rows, q='', flt=''):
     return out
 
 
+def mark_quotes(rows):
+    """Цитата из листа регистрации изменений — одна на группу позиций.
+
+    Одно изменение обычно задевает сразу несколько строк спецификации:
+    на реальном томе одна и та же цитата про шкафы ПДЗ стояла семь раз
+    подряд и растягивала каждую строку до четырёх линий. Показываем её
+    у первой строки группы, у остальных — короткой отсылкой.
+    """
+    prev = None
+    for i in rows:
+        quote = next((e.get('text') for e in (i.evidence or [])
+                      if e.get('kind') == 'revision' and e.get('text')), '')
+        i.quote = quote
+        i.quote_new = bool(quote) and quote != prev
+        prev = quote
+    return rows
+
+
 def set_decision(session, item, value, project_id=None, submission_id=None):
     """Решение эксперта по одной позиции. Заодно запоминается на объекте:
     следующая подача начнётся не с нуля."""
@@ -97,12 +115,15 @@ def _remember(session, project_id, item, submission_id=None):
 
 def bulk(session, rows, value, overwrite=False, project_id=None,
          submission_id=None, user_id=None):
-    """Массовое действие. -> (изменено, оставлено как есть).
+    """Массовое действие. -> (id изменённых строк, оставлено как есть).
 
     Строки с решением эксперта не трогаются, пока он явно не попросил
     перезаписать: иначе «взять все A» стирает ручной отбор.
+
+    Возвращаются именно id, а не счётчик: без них массовое действие
+    неотменяемо, а «снять все C» одним кликом — это полчаса чужой работы.
     """
-    changed = kept = 0
+    changed, kept = [], 0
     for item in rows:
         if item.decision != models.AUTO and not overwrite:
             kept += 1
@@ -114,7 +135,7 @@ def bulk(session, rows, value, overwrite=False, project_id=None,
         item.decided_by = user_id
         if project_id:
             _remember(session, project_id, item, submission_id)
-        changed += 1
+        changed.append(item.id)
     session.commit()
     return changed, kept
 

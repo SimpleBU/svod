@@ -1,10 +1,13 @@
+{# колонку «Разделы» выводим, только когда разделы различают строки:
+   иначе это 12 % ширины под одинаковый прочерк во всех строках #}
+{% set secs = nom.show_section_col %}
 <table class="grid">
   <thead><tr>
-    <th style="width:19%">Марка</th>
-    <th style="width:31%">Наименование</th>
+    <th style="width:{{ '19%' if secs else '21%' }}">Марка</th>
+    <th style="width:{{ '31%' if secs else '39%' }}">Наименование</th>
     <th style="width:6%">Ед.</th>
     <th class="r" style="width:9%">Кол-во</th>
-    <th style="width:12%">Разделы</th>
+    {% if secs %}<th style="width:12%">Разделы</th>{% endif %}
     <th style="width:23%">Отметки</th>
   </tr></thead>
   <tbody>
@@ -14,7 +17,7 @@
       <td class="wrap2" title="{{ r.name }}">{{ r.name }}</td>
       <td class="muted">{{ r.unit }}</td>
       <td class="r num">{{ r.qty_display }}</td>
-      <td class="mono" style="font-size:11px;color:var(--fg-4)">{{ r.sections|join(', ') }}</td>
+      {% if secs %}<td class="mono" style="font-size:11px;color:var(--fg-4)">{{ r.sections|join(', ') }}</td>{% endif %}
       <td>
         {% for f in r.flags %}
           <div class="state s-{{ 'warn' if f in ('без марки', 'дубль между разделами') else 'idle' }}" style="font-size:11px">
@@ -23,7 +26,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="empty">Ничего не найдено{% if nom.totals.total == 0 %}: спецификации ещё не разобраны{% endif %}.</td></tr>
+    <tr><td colspan="{{ 6 if secs else 5 }}" class="empty">Ничего не найдено{% if nom.totals.total == 0 %}: спецификации ещё не разобраны{% endif %}.</td></tr>
   {% endfor %}
   </tbody>
 </table>

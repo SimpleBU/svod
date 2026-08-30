@@ -17,6 +17,29 @@ from .models import MatchItem, Run
 LEVELS = {'red': 'r', 'amber': 'y', 'ok': 'g'}
 LEVEL_ORDER = {'red': 0, 'amber': 1, 'ok': 2}
 
+# Пайплайн пишет статус «ок (частично)», а такая строка считается жёлтой —
+# «под вопросом». В интерфейсе получалось прямое противоречие: в шапке
+# «0 сошлось», а в строках семь раз «ок». Слово «ок» на показе заменяем,
+# строки в базе не трогаем — их читает ещё и выгрузка отчёта.
+STATUS_LABELS = {
+    'ок': 'сошлось',
+    'ок (частично)': 'сошлось частично',
+}
+
+
+def status_label(status: str) -> str:
+    s = (status or '').strip()
+    if s in STATUS_LABELS:
+        return STATUS_LABELS[s]
+    for raw, label in STATUS_LABELS.items():
+        if s.startswith(raw + ',') or s.startswith(raw + ' —'):
+            return label + s[len(raw):]
+    return s
+
+
+def partial(item) -> bool:
+    return (item.status or '').startswith('ок (частично)')
+
 FILTERS = {
     'plan': ('по плану проверки', lambda i: i.in_plan),
     'problems': ('расхождения', lambda i: i.level == 'red'),
@@ -54,13 +77,32 @@ def items(session, document_id):
 
 
 def stats(rows):
+    """Счётчики шапки. «Сошлось частично» выделено отдельно: сложенное
+    в «под вопросом», оно давало строку «0 сошлось» над семью строками
+    со словом «ок»."""
+    part = sum(1 for i in rows if partial(i))
     return {
         'total': len(rows),
         'problems': sum(1 for i in rows if i.level == 'red'),
-        'doubts': sum(1 for i in rows if i.level == 'amber'),
+        'partial': part,
+        'doubts': sum(1 for i in rows if i.level == 'amber') - part,
         'matched': sum(1 for i in rows if i.level == 'ok'),
         'in_plan': sum(1 for i in rows if i.in_plan),
         'in_plan_problems': sum(1 for i in rows if i.in_plan and i.level == 'red'),
+    }
+
+
+def columns(rows):
+    """Какие числовые колонки вообще есть чем заполнить.
+
+    Колонка, пустая во всех строках, — это не разметка, а отсутствие данных:
+    на томе без схем «Схемы» и «Точно» держали 184 px и не различали ничего.
+    """
+    return {
+        'plan': any(i.plan_qty for i in rows),
+        'schema': any(i.schema_qty for i in rows),
+        'exact': any(i.exact_qty for i in rows),
+        'unit': any((i.unit or '').strip() for i in rows),
     }
 
 
@@ -97,8 +139,9 @@ def context(session, doc, q='', flt=None):
     shown = filtered(rows, q, flt)
     for i in shown:
         i.level_class = LEVELS.get(i.level, '')
+        i.status_label = status_label(i.status)
     return {
-        'doc': doc, 'run': run, 'busy': busy,
+        'doc': doc, 'run': run, 'busy': busy, 'cols': columns(rows),
         'error': (doc.match_stats or {}).get('error', ''),
         'has_run': bool(rows) or doc.matched_at is not None,
         'rows': shown[:MAX_ROWS], 'truncated': len(shown) > MAX_ROWS,

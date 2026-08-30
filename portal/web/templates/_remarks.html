@@ -1,14 +1,6 @@
 {% if not doc %}
   <div class="empty">Ни один том ещё не разобран. Загрузите PDF на вкладке «Состав комплекта».</div>
 {% else %}
-{% if remarks.scope != 'all' %}
-<div class="docbar">
-  {% for d in docs %}
-    <a href="?tab=remarks&doc={{ d.id }}" class="{{ 'active' if d.id == doc.id }}">{{ d.cipher or d.filename }}</a>
-  {% endfor %}
-</div>
-{% endif %}
-
 <div class="filters">
   <div class="row-between">
     <div class="sub">

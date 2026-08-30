@@ -14,26 +14,18 @@
 </head>
 <body>
 <div class="app">
-  <aside class="side">
-    <div class="brand">
-      <b>{{ APP_NAME }}</b>
-      <div class="upper">приёмка документации</div>
-    </div>
-    <nav class="nav">
-      <a href="/" class="{{ 'active' if active_nav == 'projects' else '' }}">Объекты</a>
-      <div class="later">
-        <div class="upper" style="padding:0 9px 6px">Следующие итерации</div>
-        <span>Достаточность решений</span>
-        <span>История подач</span>
-      </div>
-    </nav>
-    <div class="side-foot">
-      <div>{{ ORG_NAME }}</div>
+  <aside class="rail">
+    <a class="rail-brand" href="/" title="{{ APP_NAME }} — объекты">{{ APP_NAME }}</a>
+    <div class="rail-foot">
       {% if user %}
-        <div class="sub">{{ user.label }}</div>
-        <a class="sub logout" href="/logout">Выйти</a>
-      {% else %}
-        <div class="sub">пилот</div>
+        <span class="rail-user" title="{{ user.label }} · {{ ORG_NAME }}">{{ user.label|initials }}</span>
+        <a class="rail-out" href="/logout" title="Выйти">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M6 2.5H3.5v11H6M9 5l3 3-3 3M12 8H6" stroke="currentColor"
+                  stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="visually-hidden">Выйти</span>
+        </a>
       {% endif %}
     </div>
   </aside>

@@ -46,14 +46,19 @@
   </div>
 
 {% else %}
+  {# счётчики: «сошлось частично» стоит отдельно от «под вопросом» — иначе
+     в шапке получалось «0 сошлось» над строками со словом «ок» #}
   <div class="filters">
     <div class="row-between">
       <div class="sub">
-        Сверено {{ match.stats.total }} {{ match.stats.total|plural('марка','марки','марок') }} ·
-        <b class="bad">{{ match.stats.problems }}</b> {{ match.stats.problems|plural('расхождение','расхождения','расхождений') }} ·
-        {{ match.stats.doubts }} под вопросом ·
-        {{ match.stats.matched }} сошлось{% if match.uncheckable %} ·
-        {{ match.uncheckable }} позиций машине не проверить{% endif %}
+        Сверено {{ match.stats.total }} {{ match.stats.total|plural('марка','марки','марок') }}
+        {%- if match.stats.problems %} · <b class="bad">{{ match.stats.problems }}</b>
+          {{ match.stats.problems|plural('расхождение','расхождения','расхождений') }}{% endif %}
+        {%- if match.stats.partial %} · {{ match.stats.partial }} сошлось частично{% endif %}
+        {%- if match.stats.doubts %} · {{ match.stats.doubts }} под вопросом{% endif %}
+        {%- if match.stats.matched %} · {{ match.stats.matched }} сошлось{% endif %}
+        {%- if match.uncheckable %} · {{ match.uncheckable }}
+          {{ match.uncheckable|plural('позиция','позиции','позиций') }} машине не проверить{% endif %}
       </div>
       <form method="post" action="/api/documents/{{ doc.id }}/match">
         <button class="btn" type="submit">Пересверить</button>
@@ -72,25 +77,34 @@
       </span>
       <div class="seg">
         <a href="?tab=match&doc={{ doc.id }}&q={{ match.q }}&flt=all"
-           class="{{ 'active' if match.flt not in match.filters }}">все</a>
+           class="{{ 'active' if match.flt not in match.filters }}">все {{ match.stats.total }}</a>
         {% for key, f in match.filters.items() %}
           <a href="?tab=match&doc={{ doc.id }}&q={{ match.q }}&flt={{ key }}"
              class="{{ 'active' if match.flt == key }}">{{ f[0] }}</a>
         {% endfor %}
       </div>
+      <div class="keyhint" style="margin-left:auto">
+        <span><kbd>↑</kbd><kbd>↓</kbd> строка</span>
+        <span><kbd>Enter</kbd> в замечания</span>
+        <span><kbd>X</kbd> ложная тревога</span>
+        <span><kbd>/</kbd> поиск</span>
+      </div>
     </div>
   </div>
 
+  {# колонки, пустые во всех строках тома, не выводятся вовсе #}
+  {% set cols = match.cols %}
+  {% set flt = match.flt %}
   <table class="grid mtable">
     <thead>
       <tr>
         <th class="c-mark">Марка</th>
         <th>Наименование по спецификации</th>
-        <th class="c-unit">Ед.</th>
+        {% if cols.unit %}<th class="c-unit">Ед.</th>{% endif %}
         <th class="c-num">Спец.</th>
-        <th class="c-num">Планы</th>
-        <th class="c-num">Схемы</th>
-        <th class="c-num">Точно</th>
+        {% if cols.plan %}<th class="c-num">Планы</th>{% endif %}
+        {% if cols.schema %}<th class="c-num">Схемы</th>{% endif %}
+        {% if cols.exact %}<th class="c-num">Точно</th>{% endif %}
         <th class="c-status">Статус и листы</th>
         <th class="c-act">Решение</th>
       </tr>

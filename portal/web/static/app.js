@@ -268,3 +268,122 @@ svod.sheet = function () {
 
 document.addEventListener('DOMContentLoaded', () => svod.sheet && svod.sheet());
 document.body && document.body.addEventListener('htmx:afterSwap', () => svod.sheet && svod.sheet());
+
+
+/* ------------------------------------------------------------- клавиатура
+
+   Эксперт принимает сотни решений подряд, а до сих пор всё делалось мышью.
+   Раскладку не спрашиваем: ориентируемся на физическую клавишу (e.code),
+   иначе на русской раскладке j/k/x перестают работать.
+
+   ↑ ↓ (или j / k) — строка, Enter — главное действие строки,
+   X — второстепенное («ложная тревога» / «снять»), / — поиск, Esc — выход. */
+svod.keys = function () {
+  const table = document.querySelector('table.mtable tbody, table.ci-tbl tbody');
+  if (!table) return;
+  const rows = () => [...table.querySelectorAll('tr')].filter(r => r.offsetParent !== null);
+
+  const cur = () => table.querySelector('tr.cur');
+  const focus = (row) => {
+    if (!row) return;
+    const was = cur();
+    if (was) was.classList.remove('cur');
+    row.classList.add('cur');
+    row.scrollIntoView({ block: 'nearest' });
+  };
+  const move = (step) => {
+    const list = rows();
+    if (!list.length) return;
+    const i = list.indexOf(cur());
+    focus(list[Math.min(list.length - 1, Math.max(0, (i < 0 ? (step > 0 ? -1 : 0) : i) + step))]);
+  };
+  const press = (row, selectors) => {
+    for (const sel of selectors) {
+      const el = row && row.querySelector(sel);
+      if (el) { el.click(); return true; }
+    }
+    return false;
+  };
+
+  if (svod._keysBound) return;
+  svod._keysBound = true;
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+                         || t.tagName === 'SELECT' || t.isContentEditable);
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (typing) {
+      if (e.key === 'Escape') t.blur();
+      return;
+    }
+    const body = document.querySelector('table.mtable tbody, table.ci-tbl tbody');
+    if (!body) return;
+    const row = body.querySelector('tr.cur');
+    switch (e.code) {
+      case 'ArrowDown': case 'KeyJ': e.preventDefault(); move(1); break;
+      case 'ArrowUp': case 'KeyK': e.preventDefault(); move(-1); break;
+      case 'Enter':
+        /* главное действие строки: «В замечания» в сверке, галочка в плане */
+        if (row && press(row, ['.btn-mini', '.chk'])) e.preventDefault();
+        break;
+      case 'KeyX':
+        /* второстепенное: «ложная тревога» или «снять» */
+        if (row && press(row, ['.row-act .link', 'td.c-act .link'])) e.preventDefault();
+        break;
+      case 'Slash': {
+        const box = document.querySelector('input.search');
+        if (box) { e.preventDefault(); box.focus(); box.select(); }
+        break;
+      }
+      case 'Escape': {
+        const was = document.querySelector('tr.cur');
+        if (was) was.classList.remove('cur');
+        break;
+      }
+    }
+  });
+};
+
+document.addEventListener('DOMContentLoaded', () => svod.keys());
+document.body && document.body.addEventListener('htmx:afterSwap', () => svod.keys());
+
+
+/* --------------------------------------------------- где эксперт остановился
+
+   Каждая вкладка — это ?tab=..., то есть полная перезагрузка: фильтр,
+   раскрытые блоки паспорта и позиция в таблице сбрасывались, и вернувшись
+   на вкладку, эксперт заново искал место. Храним локально, у него в
+   браузере: это удобство одного человека, серверу о нём знать незачем. */
+svod.state = function () {
+  const key = (what) => {
+    const u = new URL(location.href);
+    const tab = u.searchParams.get('tab') || 'composition';
+    const doc = u.searchParams.get('doc') || '';
+    return `svod:${u.pathname}:${tab}:${doc}:${what}`;
+  };
+  const get = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const set = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* приватный режим */ } };
+
+  /* раскрытые блоки паспорта */
+  document.querySelectorAll('details.fold').forEach((d, n) => {
+    const k = key('fold' + n);
+    const saved = get(k);
+    if (saved !== null) d.open = saved === '1';
+    d.addEventListener('toggle', () => set(k, d.open ? '1' : '0'));
+  });
+
+  /* позиция прокрутки списка */
+  const box = document.querySelector('.scroll');
+  if (box) {
+    const k = key('scroll');
+    const saved = parseInt(get(k) || '0', 10);
+    if (saved > 0) requestAnimationFrame(() => { box.scrollTop = saved; });
+    let timer = null;
+    box.addEventListener('scroll', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => set(k, String(box.scrollTop)), 200);
+    });
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => svod.state());

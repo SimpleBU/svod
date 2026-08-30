@@ -1,29 +1,33 @@
 {% if not doc %}
   <div class="empty">Ни один том ещё не разобран. Загрузите PDF на вкладке «Состав комплекта».</div>
 {% else %}
-<div class="docbar">
-  {% for d in docs %}
-    <a href="?tab=passport&doc={{ d.id }}" class="{{ 'active' if d.id == doc.id }}">{{ d.cipher or d.filename }}</a>
-  {% endfor %}
-</div>
+{% set missing_sheets = psp.sheets|selectattr('missing')|list|length %}
+{% set missing_refs = psp.refs|rejectattr('present')|list|length %}
+{% set unused_symbols = psp.symbols|length - psp.symbols_used %}
+{% set active_norms = psp.norms|length - psp.problem_norms|length %}
 
 <div class="pad psp">
-  <div class="psp-head">
-    <div>
-      <div class="mono psp-code">{{ doc.cipher or doc.filename }}</div>
-      <div class="sub">{{ doc.section_label or doc.section or 'раздел не распознан' }}{% if doc.revision %} · {{ doc.revision }}{% endif %}</div>
-      <a class="btn psp-xlsx" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
+  {# Пять крупных цифр в шапке были счётчиками содержимого, а не состоянием
+     тома: на решение эксперта влияет только число расхождений, которого
+     в той строке как раз и не было. #}
+  <div class="psp-state">
+    <div class="state-line">
+      {% if psp.findings %}
+        <span class="state s-warn"><span class="dot"></span>{{ psp.findings|length }}
+          {{ psp.findings|length|plural('расхождение','расхождения','расхождений') }} в составе</span>
+      {% else %}
+        <span class="state s-ok"><span class="dot"></span>расхождений в составе нет</span>
+      {% endif %}
+      {% if psp.passed > 0 %}<span class="sub">· {{ psp.passed }}
+        {{ psp.passed|plural('проверка сошлась','проверки сошлись','проверок сошлись') }}</span>{% endif %}
+      <span class="sub">· <span class="num">{{ doc.pages_total|num }}</span>
+        {{ doc.pages_total|plural('страница','страницы','страниц') }}</span>
+      {% if doc.revision %}<span class="sub">· {{ doc.revision }}</span>{% endif %}
+      <span class="sub">· {{ doc.section_label or doc.section or 'раздел не распознан' }}</span>
     </div>
-    <div class="psp-nums">
-      <div><b class="num">{{ doc.pages_total|num }}</b><span class="upper">страниц</span></div>
-      <div><b class="num">{{ psp.sheets|length }}</b><span class="upper">в ведомости</span></div>
-      <div><b class="num">{{ psp.symbols|length }}</b><span class="upper">обозначений</span></div>
-      <div><b class="num">{{ psp.revisions|length }}</b><span class="upper">изменений</span></div>
-      <div><b class="num">{{ psp.norms|length }}</b><span class="upper">нормативов</span></div>
-    </div>
+    <a class="btn" href="/projects/{{ project.id }}/passport.xlsx?doc={{ doc.id }}">Выгрузить в Excel</a>
   </div>
 
-  <!-- расхождения: первое, что должен увидеть эксперт -->
   <section class="block">
     <h2>Расхождения</h2>
     {% if psp.findings %}
@@ -41,110 +45,162 @@
     {% endif %}
   </section>
 
+  {# Остальные пять блоков — свёрнуты. Счётчик и отметка проблемы стоят
+     в заголовке, чтобы разворачивать только то, где что-то не сошлось. #}
   <section class="block">
-    <h2>Состав по ведомости чертежей</h2>
-    {% if psp.sheets %}
-      <div class="tbl-wrap short">
-        <table class="tbl">
-          <thead><tr><th style="width:56px">Лист</th><th>Наименование</th><th style="width:150px">Изменения</th><th style="width:70px"></th></tr></thead>
-          <tbody>
-          {% for s in psp.sheets %}
-            <tr class="{{ 'row-missing' if s.missing }}">
-              <td class="num">{{ s.no }}</td>
-              <td>{{ s.title or '—' }}</td>
-              <td class="mono sub">{% if s.revisions %}Изм. {{ s.revisions|join(', ') }}{% if s.mark %} ({{ s.mark }}){% endif %}{% endif %}</td>
-              <td>{% if s.missing %}<span class="tag tag-r">нет</span>{% else %}<span class="sub">есть</span>{% endif %}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <div class="sub">Ведомость чертежей не распознана — остальные блоки паспорта разобраны.</div>
-    {% endif %}
-  </section>
+    <h2>Разобрано из тома</h2>
+    <div class="folds">
 
-  <section class="block">
-    <h2>Ссылочные и прилагаемые документы</h2>
-    {% if psp.refs %}
-      <table class="tbl">
-        <thead><tr><th style="width:230px">Обозначение</th><th>Наименование</th><th style="width:90px">Листов</th><th style="width:110px">В подаче</th></tr></thead>
-        <tbody>
-        {% for r in psp.refs %}
-          <tr>
-            <td class="mono">{{ r.code }}</td>
-            <td>{{ r.title }}<span class="sub"> · {{ 'прилагаемый' if r.kind == 'attached' else 'ссылочный' }}</span></td>
-            <td class="num">{{ r.sheets_declared or '' }}</td>
-            <td>{% if r.present %}<span class="tag tag-g">есть</span>{% else %}<span class="tag tag-r">нет</span>{% endif %}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">Ведомость ссылочных документов в томе не объявлена.</div>
-    {% endif %}
-    {% if psp.volumes %}
-      <div class="sub" style="margin-top:10px">Комплекты раздела: {% for v in psp.volumes %}<span class="mono">{{ v.code }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</div>
-    {% endif %}
-  </section>
-
-  <section class="block">
-    <h2>Нормативная база</h2>
-    {% if psp.norms %}
-      <div class="norms">
-      {% for n in psp.norms %}
-        <div class="norm {{ 'ctx' if n.contextual }}">
-          <span class="mono">{{ n.code }}</span>
-          <span class="norm-title">{{ n.title }}</span>
-          <span class="tag tag-{{ n.level or 'x' }}">{{ n.label }}</span>
-          {% if n.replaced_by %}<span class="sub">→ {{ n.replaced_by }}</span>{% endif %}
-        </div>
-      {% endfor %}
-      </div>
-    {% else %}
-      <div class="sub">Перечень нормативов в общих указаниях не найден.</div>
-    {% endif %}
-  </section>
-
-  <section class="block">
-    <h2>Условные обозначения</h2>
-    {% if psp.symbols %}
-      <div class="sub" style="margin-bottom:10px">{{ psp.symbols|length }} {{ psp.symbols|length|plural('обозначение','обозначения','обозначений') }}, из них {{ psp.symbols_used }} встречается в спецификации тома</div>
-      <div class="ugo">
-      {% for s in psp.symbols %}
-        <div class="ugo-cell {{ 'unused' if not s.used }}">
-          <div class="ugo-img">
-            {% if s.image_key %}<img src="/api/symbols/{{ s.id }}.png" alt="" loading="lazy">
-            {% else %}<span class="mono">{{ s.code or '—' }}</span>{% endif %}
+      <details class="fold">
+        <summary>
+          <span class="fold-name">Состав по ведомости чертежей</span>
+          <span class="fold-sub sub">{% if psp.sheets %}{{ psp.sheets|length }}
+            {{ psp.sheets|length|plural('лист','листа','листов')}} объявлено{% else %}ведомость не распознана{% endif %}</span>
+          {% if missing_sheets %}<span class="state s-bad"><span class="dot"></span>{{ missing_sheets }} нет в томе</span>
+          {% elif psp.sheets %}<span class="state s-ok"><span class="dot"></span>все на месте</span>{% endif %}
+        </summary>
+        {% if psp.sheets %}
+          <div class="tbl-wrap short">
+            <table class="tbl">
+              <thead><tr><th style="width:56px">Лист</th><th>Наименование</th><th style="width:150px">Изменения</th><th style="width:70px"></th></tr></thead>
+              <tbody>
+              {% for s in psp.sheets %}
+                <tr class="{{ 'row-missing' if s.missing }}">
+                  <td class="num">{{ s.no }}</td>
+                  <td>{{ s.title or '—' }}</td>
+                  <td class="mono sub">{% if s.revisions %}Изм. {{ s.revisions|join(', ') }}{% if s.mark %} ({{ s.mark }}){% endif %}{% endif %}</td>
+                  <td>{% if s.missing %}<span class="tag tag-r">нет</span>{% else %}<span class="sub">есть</span>{% endif %}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
           </div>
-          <div class="ugo-name">{% if s.code %}<b class="mono">{{ s.code }}</b> {% endif %}{{ s.name }}</div>
-        </div>
-      {% endfor %}
-      </div>
-    {% else %}
-      <div class="sub">Таблица условных обозначений на листе общих данных не найдена. Схемы придётся читать глазами.</div>
-    {% endif %}
-  </section>
+        {% else %}
+          <div class="sub">Ведомость чертежей не распознана — остальные блоки паспорта разобраны.</div>
+        {% endif %}
+      </details>
 
-  <section class="block">
-    <h2>История изменений</h2>
-    {% if psp.revisions %}
-      <table class="tbl">
-        <thead><tr><th style="width:44px">Изм.</th><th style="width:150px">Листы</th><th>Содержание</th><th style="width:200px">Основание</th></tr></thead>
-        <tbody>
-        {% for e in psp.revisions %}
-          <tr>
-            <td class="num">{{ e.number or '' }}</td>
-            <td class="mono sub prewrap">{{ e.sheets }}</td>
-            <td class="prewrap">{{ e.content }}{% if e.doc_code %}<div class="sub mono">{{ e.doc_code }}</div>{% endif %}</td>
-            <td class="sub prewrap">{{ e.basis }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="sub">Листы регистрации изменений в томе не найдены.</div>
-    {% endif %}
+      <details class="fold">
+        <summary>
+          <span class="fold-name">Ссылочные и прилагаемые документы</span>
+          <span class="fold-sub sub">{% if psp.refs %}{{ psp.refs|length }} объявлено{% else %}ведомость не объявлена{% endif %}</span>
+          {% if missing_refs %}<span class="state s-bad"><span class="dot"></span>{{ missing_refs }} нет в подаче</span>
+          {% elif psp.refs %}<span class="state s-ok"><span class="dot"></span>все в подаче</span>{% endif %}
+        </summary>
+        {% if psp.refs %}
+          <table class="tbl">
+            <thead><tr><th style="width:230px">Обозначение</th><th>Наименование</th><th style="width:90px">Листов</th><th style="width:110px">В подаче</th></tr></thead>
+            <tbody>
+            {% for r in psp.refs %}
+              <tr>
+                <td class="mono">{{ r.code }}</td>
+                <td>{{ r.title }}<span class="sub"> · {{ 'прилагаемый' if r.kind == 'attached' else 'ссылочный' }}</span></td>
+                <td class="num">{{ r.sheets_declared or '' }}</td>
+                <td>{% if r.present %}<span class="tag tag-g">есть</span>{% else %}<span class="tag tag-r">нет</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="sub">Ведомость ссылочных документов в томе не объявлена.</div>
+        {% endif %}
+        {% if psp.volumes %}
+          <div class="sub" style="margin-top:10px">Комплекты раздела: {% for v in psp.volumes %}<span class="mono">{{ v.code }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</div>
+        {% endif %}
+      </details>
+
+      <details class="fold" {{ 'open' if psp.problem_norms }}>
+        <summary>
+          <span class="fold-name">Нормативная база</span>
+          <span class="fold-sub sub">{% if psp.norms %}{{ psp.norms|length }}
+            {{ psp.norms|length|plural('документ','документа','документов') }}{% else %}перечень не найден{% endif %}</span>
+          {% if psp.problem_norms %}<span class="state s-warn"><span class="dot"></span>{{ psp.problem_norms|length }} заменены или требуют проверки</span>
+          {% elif psp.norms %}<span class="state s-ok"><span class="dot"></span>все действуют</span>{% endif %}
+        </summary>
+        {% if psp.norms %}
+          {# проблемные вперёд: действующие — это фон, их 16 из 20 #}
+          <div class="norms">
+          {% for n in psp.problem_norms %}
+            <div class="norm">
+              <span class="mono">{{ n.code }}</span>
+              <span class="norm-title">{{ n.title }}</span>
+              <span class="tag tag-{{ n.level or 'x' }}">{{ n.label }}</span>
+              {% if n.replaced_by %}<span class="sub">→ {{ n.replaced_by }}</span>{% endif %}
+            </div>
+          {% endfor %}
+          </div>
+          {% if active_norms %}
+            <details class="passed">
+              <summary>{{ active_norms }} {{ active_norms|plural('норматив действует','норматива действуют','нормативов действуют') }}</summary>
+              <div class="norms">
+              {% for n in psp.norms if n not in psp.problem_norms %}
+                <div class="norm {{ 'ctx' if n.contextual }}">
+                  <span class="mono">{{ n.code }}</span>
+                  <span class="norm-title">{{ n.title }}</span>
+                  <span class="tag tag-{{ n.level or 'x' }}">{{ n.label }}</span>
+                  {% if n.replaced_by %}<span class="sub">→ {{ n.replaced_by }}</span>{% endif %}
+                </div>
+              {% endfor %}
+              </div>
+            </details>
+          {% endif %}
+        {% else %}
+          <div class="sub">Перечень нормативов в общих указаниях не найден.</div>
+        {% endif %}
+      </details>
+
+      <details class="fold">
+        <summary>
+          <span class="fold-name">Условные обозначения</span>
+          <span class="fold-sub sub">{% if psp.symbols %}{{ psp.symbols|length }} на листе общих данных,
+            {{ psp.symbols_used }} в спецификации{% else %}таблица не найдена{% endif %}</span>
+          {% if unused_symbols %}<span class="state s-warn"><span class="dot"></span>{{ unused_symbols }} не встречаются</span>
+          {% elif not psp.symbols %}<span class="state s-warn"><span class="dot"></span>схемы придётся читать глазами</span>
+          {% else %}<span class="state s-ok"><span class="dot"></span>все встречаются</span>{% endif %}
+        </summary>
+        {% if psp.symbols %}
+          <div class="ugo">
+          {% for s in psp.symbols %}
+            <div class="ugo-cell {{ 'unused' if not s.used }}">
+              <div class="ugo-img">
+                {% if s.image_key %}<img src="/api/symbols/{{ s.id }}.png" alt="" loading="lazy">
+                {% else %}<span class="mono">{{ s.code or '—' }}</span>{% endif %}
+              </div>
+              <div class="ugo-name">{% if s.code %}<b class="mono">{{ s.code }}</b> {% endif %}{{ s.name }}</div>
+            </div>
+          {% endfor %}
+          </div>
+        {% else %}
+          <div class="sub">Таблица условных обозначений на листе общих данных не найдена. Схемы придётся читать глазами.</div>
+        {% endif %}
+      </details>
+
+      <details class="fold">
+        <summary>
+          <span class="fold-name">История изменений</span>
+          <span class="fold-sub sub">{% if psp.revisions %}{{ psp.revisions|length }}
+            {{ psp.revisions|length|plural('запись','записи','записей') }} в листе регистрации{% else %}листы регистрации не найдены{% endif %}</span>
+        </summary>
+        {% if psp.revisions %}
+          <table class="tbl">
+            <thead><tr><th style="width:44px">Изм.</th><th style="width:150px">Листы</th><th>Содержание</th><th style="width:200px">Основание</th></tr></thead>
+            <tbody>
+            {% for e in psp.revisions %}
+              <tr>
+                <td class="num">{{ e.number or '' }}</td>
+                <td class="mono sub prewrap">{{ e.sheets }}</td>
+                <td class="prewrap">{{ e.content }}{% if e.doc_code %}<div class="sub mono">{{ e.doc_code }}</div>{% endif %}</td>
+                <td class="sub prewrap">{{ e.basis }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="sub">Листы регистрации изменений в томе не найдены.</div>
+        {% endif %}
+      </details>
+
+    </div>
   </section>
 </div>
 {% endif %}

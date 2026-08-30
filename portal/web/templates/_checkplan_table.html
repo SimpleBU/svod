@@ -1,16 +1,31 @@
 <div id="plantable">
   {% set stats = plan.stats %}
   {% set doc_id = plan.doc.id %}
+  {% set showpos = plan.show_pos %}
   {% include '_checkplan_counter.html' %}
-  {% if plan.flash %}<div class="flash">{{ plan.flash }}</div>{% endif %}
+  {% if plan.flash %}
+    <div class="flash row-between">
+      <span>{{ plan.flash.text }}</span>
+      {% if plan.flash.undo %}
+        <form hx-post="/api/check-plans/{{ plan.plan.id }}/undo"
+              hx-target="#plantable" hx-swap="outerHTML">
+          <input type="hidden" name="ids" value="{{ plan.flash.undo }}">
+          <input type="hidden" name="q" value="{{ plan.q }}">
+          <input type="hidden" name="flt" value="{{ plan.flt }}">
+          <button class="link" type="submit">Вернуть как было</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
   <div class="tbl-wrap">
     <table class="tbl ci-tbl">
       <thead>
         <tr>
-          <th style="width:34px"></th><th style="width:34px">Кл</th><th style="width:46px">Поз.</th>
+          <th style="width:34px"></th><th style="width:34px">Кл</th>
+          {% if showpos %}<th style="width:46px" title="Обозначение позиции, как оно стоит в спецификации">Поз.</th>{% endif %}
           <th>Наименование</th><th style="width:190px">Марка</th>
           <th style="width:80px">Кол-во</th><th style="width:46px">Ед.</th>
-          <th style="width:300px">Почему важно</th><th style="width:180px">Чем проверяется</th>
+          <th style="width:300px">Почему важно</th>
         </tr>
       </thead>
       <tbody>

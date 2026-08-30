@@ -1,3 +1,7 @@
+{# «Чем проверяется» было колонкой на 180 px, в которой у 45 строк из 53
+   стояло одно и то же «по планам, по схемам». Различает только меньшинство —
+   его и показываем отметкой у наименования. #}
+{% set showpos = showpos|default(false, true) %}
 <tr id="ci{{ i.id }}" class="ci cls-{{ i.cls|lower }} {{ 'on' if i.included }} {{ 'skipped' if i.decision == 'skip' }}">
   <td class="ci-check">
     <form hx-post="/api/check-items/{{ i.id }}/decision" hx-target="#ci{{ i.id }}"
@@ -7,19 +11,22 @@
               title="{{ 'снять с проверки' if i.included else 'взять в проверку' }}"></button>
     </form>
   </td>
-  <td><span class="cls cls-{{ i.cls|lower }}">{{ i.cls }}</span></td>
-  <td class="mono sub">{{ i.pos }}</td>
+  <td><span class="cls cls-{{ i.cls|lower }}" title="{{ {'A':'проверять обязательно','B':'проверять выборочно','C':'не проверять'}.get(i.cls, '') }}">{{ i.cls }}</span></td>
+  {% if showpos %}<td class="mono sub">{{ i.pos }}</td>{% endif %}
   <td class="ci-name">
     <div class="wrap2">{{ i.name }}</div>
-    {% if i.origin %}<div class="origin">{{ i.origin }}</div>{% endif %}
+    <div class="ci-name-foot">
+      {% if i.origin %}<span class="origin">{{ i.origin }}</span>{% endif %}
+      {% if i.verifiable_by == ['только глазами'] %}<span class="eye" title="машине эта позиция не проверяется">только глазами</span>{% endif %}
+    </div>
   </td>
   <td class="mono ci-mark"><div class="wrap2">{{ i.mark }}</div></td>
   <td class="num">{{ i.qty|num }}</td>
   <td class="sub">{{ i.unit }}</td>
   <td class="ci-why">
     {% for r in i.reasons %}<span class="why {{ 'why-changed' if r.code == 'changed' }}{{ ' why-minus' if r.weight < 0 }}">{{ r.text }}</span>{% endfor %}
-    {% for e in i.evidence %}{% if e.kind == 'revision' %}<div class="quote">«{{ e.text }}»</div>{% endif %}{% endfor %}
+    {% if i.quote_new %}<div class="quote">«{{ i.quote }}»</div>
+    {% elif i.quote %}<div class="quote quote-same">то же изменение</div>{% endif %}
     {% if i.comment %}<div class="note">{{ i.comment }}</div>{% endif %}
   </td>
-  <td class="sub">{{ i.verifiable_by|join(', ') }}</td>
 </tr>

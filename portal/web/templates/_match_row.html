@@ -1,41 +1,48 @@
-{# строка сверки: решение эксперта меняет только её саму #}
+{# строка сверки: решение эксперта меняет только её саму.
+   cols и flt приходят из панели; при точечной подмене строки их
+   присылает сам роут, поэтому здесь только значения по умолчанию #}
+{% set cols = cols|default({'unit': true, 'plan': true, 'schema': true, 'exact': true}, true) %}
+{% set flt = flt|default('', true) %}
 <tr class="mrow lvl-{{ i.level_class }}{{ ' decided' if i.remark }}" id="mrow-{{ i.id }}">
   <td class="mono">{{ i.marks|join(' · ') if i.marks else i.mark }}
-    {% if i.in_plan %}<div><span class="tag tag-plan">в плане проверки</span></div>{% endif %}</td>
+    {# при фильтре «по плану проверки» тег стоял бы на каждой строке и не различал ничего #}
+    {% if i.in_plan and flt != 'plan' %}<div><span class="tag tag-plan">в плане проверки</span></div>{% endif %}</td>
   <td>{{ i.names }}{% if i.sections %}<div class="sub">{{ i.sections|join(', ') }}</div>{% endif %}</td>
-  <td class="sub">{{ i.unit }}</td>
+  {% if cols.unit %}<td class="sub">{{ i.unit }}</td>{% endif %}
   <td class="c-num num">{{ i.spec_qty|num }}</td>
-  <td class="c-num num">{{ i.plan_qty|num }}{% if i.plan_raw and i.plan_raw != i.plan_qty %}<span class="sub"> / {{ i.plan_raw|num }}</span>{% endif %}</td>
-  <td class="c-num num">{{ i.schema_qty|num }}{% if i.schema_raw and i.schema_raw != i.schema_qty %}<span class="sub"> / {{ i.schema_raw|num }}</span>{% endif %}</td>
-  <td class="c-num num">{{ i.exact_qty }}</td>
-  <td><i class="dot"></i>{{ i.status }}
+  {% if cols.plan %}<td class="c-num num">{{ i.plan_qty|num }}{% if i.plan_raw and i.plan_raw != i.plan_qty %}<span class="sub"> / {{ i.plan_raw|num }}</span>{% endif %}</td>{% endif %}
+  {% if cols.schema %}<td class="c-num num">{{ i.schema_qty|num }}{% if i.schema_raw and i.schema_raw != i.schema_qty %}<span class="sub"> / {{ i.schema_raw|num }}</span>{% endif %}</td>{% endif %}
+  {% if cols.exact %}<td class="c-num num">{{ i.exact_qty }}</td>{% endif %}
+  <td><i class="dot"></i>{{ i.status_label or i.status }}
     <div class="mono sub sheets">
       {% if i.spec_pages %}<span>спец. {{ i.spec_pages|join(', ') }}</span>{% endif %}
       {% if i.plan_pages %}<span>планы {{ i.plan_pages[:8]|join(', ') }}</span>{% endif %}
       {% if i.schema_pages %}<span>схемы {{ i.schema_pages[:8]|join(', ') }}</span>{% endif %}
     </div>
   </td>
-  <td class="c-act">
-    {% if i.plan_pages or i.schema_pages %}
-      <a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ i.document_id }}&item={{ i.id }}">показать на листе</a>
-    {% endif %}
+  <td class="c-act"><div class="act-wrap">
     {% if i.remark and i.remark.status == 'dismissed' %}
       <div class="verdict v-off">снято</div>
       <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"
-              hx-vals='{"status": "open"}' hx-target="#mrow-{{ i.id }}"
+              hx-vals='{"status": "open", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
               hx-swap="outerHTML">вернуть</button>
     {% elif i.remark %}
       <div class="verdict v-on">замечание</div>
       <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"
-              hx-vals='{"status": "dismissed"}' hx-target="#mrow-{{ i.id }}"
+              hx-vals='{"status": "dismissed", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
               hx-swap="outerHTML">снять</button>
     {% else %}
       <button class="btn btn-mini" hx-post="/api/match-items/{{ i.id }}/remark"
-              hx-vals='{"status": "open"}' hx-target="#mrow-{{ i.id }}"
+              hx-vals='{"status": "open", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
               hx-swap="outerHTML">В замечания</button>
-      <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"
-              hx-vals='{"status": "dismissed"}' hx-target="#mrow-{{ i.id }}"
-              hx-swap="outerHTML">ложная тревога</button>
+      <div class="row-act">
+        {% if i.plan_pages or i.schema_pages %}
+          <a class="link" href="/projects/{{ project.id }}?tab=sheet&doc={{ i.document_id }}&item={{ i.id }}&from=match">на листе</a>
+        {% endif %}
+        <button class="link" hx-post="/api/match-items/{{ i.id }}/remark"
+                hx-vals='{"status": "dismissed", "flt": "{{ flt }}"}' hx-target="#mrow-{{ i.id }}"
+                hx-swap="outerHTML">ложная тревога</button>
+      </div>
     {% endif %}
-  </td>
+  </div></td>
 </tr>
