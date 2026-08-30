@@ -321,12 +321,6 @@ def _composition(s, project, submission):
             'project': project, 'submission': submission}
 
 
-def _composition_open(s, sub):
-    """Сколько находок ещё ждут решения — цифра у вкладки «Приёмка»."""
-    docs = [d for d in sub.documents if d.status == models.DONE]
-    return finding_service.submission_stats(s, docs)['open']
-
-
 def _parsed_docs(sub):
     """Тома, по которым уже есть что показывать."""
     return [d for d in sub.documents if d.status == models.DONE]
@@ -384,12 +378,14 @@ def project_page(request: Request, project_id: int, tab: str = 'composition',
                  from_tab: str = Query('', alias='from')):
     with db() as s:
         p, sub = _load(s, project_id)
+        # сводка считается один раз за запрос: счётчик у вкладки и блок над
+        # составом комплекта берут её из одного места, а не гоняют выборки дважды
+        composition = _composition(s, p, sub)
         ctx = {'request': request, 'project': p, 'submission': sub, 'tab': tab,
                'q': q, 'section': section, 'flagged': flagged, 'flt': flt,
-               'from': from_tab,
+               'from': from_tab, 'composition': composition,
                'open_remarks': remark_service.open_count(s, _parsed_docs(sub)),
-               'intake_open': _composition_open(s, sub)}
-        ctx['composition'] = _composition(s, p, sub)
+               'intake_open': composition['summary']['open']}
         if tab == 'nomenclature':
             ctx['nom'] = _nom_ctx(s, sub, q, section, flagged)
         elif tab in ('intake', 'passport', 'checkplan', 'match', 'remarks', 'sheet'):
